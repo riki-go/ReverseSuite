@@ -1,0 +1,6 @@
+# ReverseSuite local artifacts (do not commit)
+projects/reversesuite/tools/
+projects/reversesuite/.venv/
+projects/reversesuite/fixtures/out/
+projects/reversesuite/fixtures/*.log
+projects/reversesuite/spikes/**/out/
