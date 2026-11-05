@@ -1,0 +1,218 @@
+{
+  "schema_version": "1.0.0",
+  "source": {
+    "file": "frozen/a.exe",
+    "sha256": "7E01F46B6A3BA26054D8BA5278D1F5F7BC1363B411B2D561B466D0BC1F9EB867",
+    "bytes": 668672
+  },
+  "header": {
+    "e_lfanew": 248,
+    "machine": 34404,
+    "machine_hex": "0x8664",
+    "magic": 523,
+    "magic_hex": "0x20b",
+    "pe_kind": "PE32+",
+    "num_sections": 8,
+    "size_of_optional_header": 240,
+    "section_table_offset": 512,
+    "section_table_end": 832,
+    "sections": [
+      {
+        "index": 1,
+        "name": ".text",
+        "raw_ptr": 1024,
+        "raw_size": 537088,
+        "raw_end": 538112
+      },
+      {
+        "index": 2,
+        "name": ".rdata",
+        "raw_ptr": 538112,
+        "raw_size": 93696,
+        "raw_end": 631808
+      },
+      {
+        "index": 3,
+        "name": ".data",
+        "raw_ptr": 631808,
+        "raw_size": 4608,
+        "raw_end": 636416
+      },
+      {
+        "index": 4,
+        "name": ".pdata",
+        "raw_ptr": 636416,
+        "raw_size": 21504,
+        "raw_end": 657920
+      },
+      {
+        "index": 5,
+        "name": ".idata",
+        "raw_ptr": 657920,
+        "raw_size": 4608,
+        "raw_end": 662528
+      },
+      {
+        "index": 6,
+        "name": ".00cfg",
+        "raw_ptr": 662528,
+        "raw_size": 512,
+        "raw_end": 663040
+      },
+      {
+        "index": 7,
+        "name": ".fptable",
+        "raw_ptr": 663040,
+        "raw_size": 1024,
+        "raw_end": 664064
+      },
+      {
+        "index": 8,
+        "name": ".reloc",
+        "raw_ptr": 664064,
+        "raw_size": 4608,
+        "raw_end": 668672
+      }
+    ],
+    "text": {
+      "index": 1,
+      "name": ".text",
+      "raw_ptr": 1024,
+      "raw_size": 537088,
+      "raw_end": 538112
+    },
+    "max_raw_end": 668672,
+    "file_size": 668672
+  },
+  "cases": [
+    {
+      "id": "t1",
+      "description": "truncate at 0x20 (middle of DOS header)",
+      "mutation": {
+        "kind": "truncate",
+        "cut_at": 32,
+        "bytes_after": 32
+      },
+      "expected_status": "failed",
+      "expected_exit_code": 3,
+      "rationale": "DOS header cannot be parsed, so e_lfanew is unavailable",
+      "file": "t1.bin",
+      "bytes_out": 32,
+      "sha256": "34B9348ECCCB09747637E5BDAA744E48362A9E684B260766E49868F2E50CECAB"
+    },
+    {
+      "id": "t2",
+      "description": "truncate at e_lfanew+0x10 (middle of COFF header)",
+      "mutation": {
+        "kind": "truncate",
+        "cut_at": 264,
+        "bytes_after": 264
+      },
+      "expected_status": "failed",
+      "expected_exit_code": 3,
+      "rationale": "COFF header incomplete; section count and optional-header size unreadable",
+      "file": "t2.bin",
+      "bytes_out": 264,
+      "sha256": "AF6CEC57C68722BAC90503038AFD83C78B5C6639FE48162F439C39912913784F"
+    },
+    {
+      "id": "t3",
+      "description": "truncate in the middle of section entry #3",
+      "mutation": {
+        "kind": "truncate",
+        "cut_at": 612,
+        "bytes_after": 612,
+        "formula": "section_table_offset + 2*40 + 20"
+      },
+      "expected_status": "failed",
+      "expected_exit_code": 3,
+      "rationale": "section table is truncated; section metadata incomplete",
+      "file": "t3.bin",
+      "bytes_out": 612,
+      "sha256": "18C07F4A511C499F32DE3562250CB32519B26A0707417B6AA8AFF5A9F17E0E97"
+    },
+    {
+      "id": "t4",
+      "description": "truncate in the middle of .text raw data",
+      "mutation": {
+        "kind": "truncate",
+        "cut_at": 269568,
+        "bytes_after": 269568,
+        "formula": ".text.raw_ptr + .text.raw_size/2"
+      },
+      "expected_status": "degraded",
+      "expected_exit_code": 2,
+      "rationale": "headers and section table are intact; only part of .text bytes are missing",
+      "file": "t4.bin",
+      "bytes_out": 269568,
+      "sha256": "3DD3BF88F4A29A1977AE8DBF4439118BD1B949BBFDC58D8B28FCDDFB2BE8DFC9"
+    },
+    {
+      "id": "t5",
+      "description": "drop the last byte of the file",
+      "mutation": {
+        "kind": "truncate",
+        "cut_at": 668671,
+        "bytes_after": 668671,
+        "formula": "file_size - 1",
+        "last_raw_end": 668672,
+        "file_size": 668672,
+        "overlay_bytes": 0
+      },
+      "expected_status": "degraded",
+      "expected_exit_code": 2,
+      "rationale": "headers intact; one byte missing from the tail region",
+      "file": "t5.bin",
+      "bytes_out": 668671,
+      "sha256": "806569CCEFA143DC27F852F0C978CBBE9B96DB6A0EEA007E0E77DBE9BC519DD7"
+    },
+    {
+      "id": "f1",
+      "description": "NumberOfSections = 0xFFFF",
+      "mutation": {
+        "kind": "patch",
+        "offset": 254,
+        "length": 2,
+        "new_hex": "ffff"
+      },
+      "expected_status": "failed",
+      "expected_exit_code": 3,
+      "rationale": "section count exceeds any sane limit; also hits the T2 cap",
+      "file": "f1.bin",
+      "bytes_out": 668672,
+      "sha256": "C16E2945DB45E91ADC9B60B1F1E6690D5A4FED0E1D5317C6999A6E4F41D91257"
+    },
+    {
+      "id": "f2",
+      "description": "SizeOfOptionalHeader = 0x0010",
+      "mutation": {
+        "kind": "patch",
+        "offset": 268,
+        "length": 2,
+        "new_hex": "1000"
+      },
+      "expected_status": "failed",
+      "expected_exit_code": 3,
+      "rationale": "optional header too small to hold required fields; section table offset invalid",
+      "file": "f2.bin",
+      "bytes_out": 668672,
+      "sha256": "1F1B291D8E27D3325CABC1C8ED102118407B8715A888945E5AE1C1BD3D18F7BC"
+    },
+    {
+      "id": "f3",
+      "description": "e_lfanew points past end of file",
+      "mutation": {
+        "kind": "patch",
+        "offset": 60,
+        "length": 4,
+        "new_value": "file_size + 0x1000"
+      },
+      "expected_status": "failed",
+      "expected_exit_code": 3,
+      "rationale": "COFF/optional headers lie outside the file",
+      "file": "f3.bin",
+      "bytes_out": 668672,
+      "sha256": "83C219545C5AFF4007017B5BBCAFDE526A767AD46C14F734401307AF38E52F9D"
+    }
+  ]
+}
