@@ -29,5 +29,56 @@
     "mingw": "gcc -O0 -g -o b_unstripped.exe; strip --strip-all -> b.exe",
     "note": "MSVC build is not byte-reproducible (/Brepro tested: hashes differ) -> fixtures are frozen"
   },
-  "frozen_at": "2026-11-05T00:43:12.895Z"
+  "frozen_at": "2026-11-05T00:43:12.895Z",
+  "msvc": {
+    "toolset": "14.44.35228.0",
+    "cl": {
+      "version": "19.44.35228.0",
+      "sha256": "88C8344236A27A6E727E0A8EDC49AAA2690BDC7A9464B9D18CC7ABE70A9F1C0D"
+    },
+    "link": {
+      "version": "14.44.35228.0",
+      "sha256": "CA11E6C45DEBD34BF652DFE984C5360A531A005ED78BF72852330C9C2590CF0D"
+    },
+    "dumpbin": {
+      "version": "14.44.35228.0",
+      "sha256": "12A1CD87238BD66DFDB788B4FCDCB91CE4B3F81236AAB12A7A29E5AE1D85AF50"
+    },
+    "windows_sdk": "10.0.26100.0",
+    "path": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64",
+    "toolset_dir": "14.44.35207",
+    "provenance_note": "Folder name is the VS build (14.44.35207). cl.exe reports FileVersion 19.44.35228.0 and link/dumpbin 14.44.35228.0. Only one toolset is installed, so the build used these binaries; the earlier step-0 figure (14.44.35207) was the folder name, not the compiler version. build-evidence.log contains no compiler banner, so the build-time version cannot be proven from the log."
+  },
+  "notes": "pinned toolchain for fixture builds and AC-3 reference (dumpbin)",
+  "upx": {
+    "version": "5.2.1",
+    "repo": "upx/upx",
+    "tag": "v5.2.1",
+    "published_at": "2026-08-27T14:01:40Z",
+    "age_days_at_check": 69.5,
+    "url": "https://github.com/upx/upx/releases/download/v5.2.1/upx-5.2.1-win64.zip",
+    "zip_bytes": 680290,
+    "zip_sha256": "eabc6792a347d45e945be7748423e7868fd01b0d2bcaa2f4b1031fd71ff69bda",
+    "checksum_source": "GitHub asset digest (API); no publisher checksum file",
+    "reason_selected": "newest release satisfying the 14-day age gate",
+    "exe_path": "tools/upx/upx-5.2.1-win64/upx.exe",
+    "exe_sha256": "D20EBE0B7B22B6BE968C8C34BE61F94DDEA12CB11462E2CEC27F548EF9574DF8",
+    "pack_command": "upx -9 fixtures/out/b_packed.exe  (source: copy of frozen/b.exe)",
+    "source": {
+      "file": "frozen/b.exe",
+      "bytes": 21006,
+      "sha256": "3584E2882498F73BACF29AD4C12D41049AA63FBB5DF947CCCE234D638D4DC265"
+    },
+    "packed": {
+      "file": "fixtures/out/b_packed.exe",
+      "bytes": 9230,
+      "ratio": "43.94%",
+      "sha256": "04C212E18279156C0A1A4EC1D6EF7C459BD67ADD51E20A7B3CA409F6C42090CD"
+    },
+    "upx_test": "OK (upx -t)"
+  },
+  "evidence": {
+    "pe_linker_version": "14.44 (from dumpbin /headers on frozen/a.exe)",
+    "note": "installed dumpbin/link 14.44 do not support /richheader (LNK4044); manual rich-header parse was unreliable, so exact build number cannot be confirmed from the PE"
+  }
 }
