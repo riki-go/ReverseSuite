@@ -302,6 +302,34 @@
 เกณฑ์อื่น:
 - streaming บังคับถ้า R_buffer - R_stream > 200 MB ที่ขนาดที่เลือก
 - ถ้า J > 8 เท่าของขนาด code → เพิ่ม gzip ให้ JSONL ก่อน M1b
+### 14.2.1 AC-7a — ตัวเลขที่ล็อก (v4.3, จากผล S1)
+ผล S1 (commit 9e3e838 · `spikes/S1-results.json`):
+- T_median = 627,159 instr/s (3 รอบ: 0.322/0.320/0.319 s, counts 200,850 เท่ากันทุกครั้ง)
+- B = 2.6741 bytes/instr · .text = 537,088 B / 200,850 instr
+- capstone triple: dist 5.0.9 · module 5.0.7 · core 5.0.1280 · Python 3.12.10 · Windows 10.0.26300
+- JSONL = 14,383,477 B ต่อ code 1 MB → ratio 13.72× → **gzip required**
+
+**ขนาด d.exe (target): 70 MB** — จาก `size = min(100MB, T×45×B)` = 75.4 MB ปัดลง 5 MB
+
+**(a) T เป็น proxy — ไม่ใช่คำสัญญาเวลา**
+- T วัดจาก .text ของ a.exe (MSVC mix จริง) แต่ d.exe เป็น synthetic codegen (repetitive pattern) ซึ่ง disasm มักเร็วกว่า
+- ดังนั้น T=627k เป็นการ **underestimate เวลา** ของ d.exe ไม่ใช่ overestimate
+- AC-7a วัดเวลาจริงบน d.exe และ **ผลจริงมีอำนาจเหนือกว่าตัวเลขคาดการณ์** (ห้ามอ้าง 41.8 s ว่าเป็นคำสัญญา)
+
+**(b) เกณฑ์ผ่าน + fallback ที่ประกาศล่วงหน้า**
+- AC-7a gate (ไม่เปลี่ยน): wall <= 60 s · peak RSS <= 1 GB
+- Sizing budget = 45 s (ใช้เลือกขนาดเท่านั้น เพื่อเหลือ headroom 25% ถึง gate 60 s)
+- **Fallback ที่ประกาศล่วงหน้า**: ถ้า AC-7a บน 70 MB ใช้เวลา > 45 s → ลดเป็น **65 MB** (คาด ~38.8 s) และรันใหม่ได้ทันที **โดยไม่ต้องอนุมัติซ้ำ** เพราะเกณฑ์ ≤ 60 s ยังเดิม
+- ต้องรายงานทั้งสองผล (70 MB ที่ fail 45 s และ 65 MB ที่ผ่าน) เพื่อบันทึกว่า fallback ถูกใช้จริง
+- ถ้า RSS เกิน 1 GB → **หยุดและรายงาน** (cap เป็น safety ไม่ใช่ perf target — ห้าม fallback อัตโนมัติ)
+
+**(c) gzip ต้องวัดจริงใน AC-7a**
+- ต้องบันทึกทั้ง raw bytes และ gzip bytes
+- ผ่านเมื่อ ratio(raw) > 8× **และ** gzip size <= 20% ของ raw (ไม่ปล่อยเป็นเงื่อนไขหลวมว่า "ใส่ gzip แล้ว")
+
+**(d) streaming เป็น default**
+- streaming **บังคับ** เมื่อ slice >= 32 MB ไม่ว่า `R_buffer − R_stream` จะเป็นเท่าไร
+- เหตุผล: buffer ที่ 70 MB ≈ 26M rows ≈ 1.3 GB ซึ่งเกิน cap ใด ๆ ที่ประกาศ (delta 10.5 MB ที่ 10 MB slice ไม่ใช่เหตุผลที่ต้อง stream)
 ### 14.3 R1 (Job Object) — เกณฑ์ที่สไปก์ต้องยืนยัน (แก้ตามข้อเท็จจริงของ Windows)
 ข้อเท็จจริง: เมื่อโปรเซสใน Job จองเกิน memory limit **การจองล้มเหลว ไม่ใช่ถูกฆ่าอัตโนมัติ** — ผู้เรียกต้องตัดสินใจเอง
 
@@ -355,3 +383,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.1 (pre-spike lock): ยืนยัน a.exe = PE32+ x64 (0x8664/0x20B, OptSize 240); เพิ่มตัวเลข S1 (T/R/J), R1 (512MB cap, 2s kill, 120s watchdog), เพดาน T2, นิยาม failed/degraded + diagnostic pe.*, hash ของ manifest 3 ไฟล์ + สคริปต์, รายการ fixture/derived cases
 - v4.2: S1 = เกณฑ์คงที่ 60 วิ/1 GB + สูตรขนาด (มัธยฐาน 3 รอบ, คำนวณครั้งเดียว, วัด B ของ d.exe ภายหลัง), R1 = นิยามตามพฤติกรรมจริงของ Job (peak <= cap+64MB + ตรวจจับเหตุการณ์ + ยุติ <= 2 วิ) + กติการันเนอร์ CREATE_SUSPENDED/Resume/KILL_ON_JOB_CLOSE + ctypes เท่านั้น, T2 หน่วยชัดเจน + config_hash, diagnostic priority (cap ก่อน truncated) + `pe.opt.size_mismatch`, 512 MB เฉพาะสไปก์, นิยาม retry
 - บันทึกประวัติที่ขาด (ย้อนหลัง): b.exe เปลี่ยนจาก MSVC เป็น MinGW-w64 + strip (b_unstripped เป็นเฉลย AC-15) · นโยบาย frozen fixture + MSVC build ไม่ reproducible (ทดสอบ /Brepro แล้ว hash ต่าง) · เลือก UPX 5.2.1 ด้วยกติกาอายุ 14 วัน + checksum_source = GitHub asset digest · provenance MSVC (โฟลเดอร์ 14.44.35207 vs ไบนารี 19.44.35228.0, ยืนยันได้แค่ linker 14.44 จาก PE header) · แก้ข้อผิดพลาดเดิม: a.exe เป็น PE32+ x64 (Machine 0x8664, Magic 0x20B, OptSize 240) ไม่ใช่ PE32/OptSize 224 · กติกา git (ห้าม add -A, ระบุ path, commit ต้องอนุมัติรายครั้ง) + เหตุการณ์ git add -A ที่ดูด toolchain 11,878 ไฟล์เข้า commit 19eeb6a และการแก้ด้วย 0d995c9/8184c5d · ตัดสินใจยังไม่ rotate กุญแจ (Telegram/Tavily) แต่ต้อง untrack ไฟล์ memory ที่มีค่าเมื่อได้อนุมัติ · เอา notepad.exe ออกจาก AC-1 (ใช้ fixture ที่คอมไพล์เองทั้งหมด)
+- v4.3: ล็อก AC-7a จากผล S1 — 70 MB target, T เป็น proxy (ผลจริงชนะ), fallback 65 MB ที่ประกาศล่วงหน้าเมื่อ >45 s (gate ยัง 60 s/1 GB), gzip <= 20% ของ raw + raw ratio > 8x, streaming บังคับที่ slice >= 32 MB
