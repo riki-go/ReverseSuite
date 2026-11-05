@@ -275,6 +275,56 @@
 - ภายหลัง: .NET / APK / Web-JS, L5 ML, restricted token/low integrity
 - Phase gate: ก่อนเริ่ม milestone ใด ต้องเขียน AC ของ milestone นั้นและผ่านรีวิวก่อน
 
+## 14. Pre-spike lock (v4.1) — ตัวเลขและนิยามที่ล็อกก่อนรัน S1/R1
+
+### 14.1 ข้อเท็จจริง PE ของ a.exe (ยืนยันจาก header)
+- Machine = 0x8664 (x64) · Magic = 0x20B (PE32+) · SizeOfOptionalHeader = 240
+- e_lfanew = 248 · section_table_offset = 512 · .text raw_ptr = 1024, raw_size = 537,088
+- maxRawEnd = 668,672 = file_size → ไม่มี overlay (ตัด 1 ไบต์ท้ายไฟล์จึงโดนข้อมูลจริง)
+
+### 14.2 S1 (capstone) — เกณฑ์ตัดสินล่วงหน้า (ห้ามปรับหลังเห็นผล)
+วัด 1 รอบต่อค่า, time-box 2 ชั่วโมง:
+- T = instructions/วินาที บน slice .text ขนาด 10MB (CPython 3.12)
+- R_stream = peak RSS เมื่อเขียน JSONL แบบ stream; R_buffer = peak RSS เมื่อเก็บทั้งหมดในหน่วยความจำ
+- J = ขนาด JSONL ต่อ code 1MB
+
+| ผลวัด | ขนาด fixture AC-7a | เกณฑ์ผ่าน |
+|---|---|---|
+| T < 100,000 | 10 MB | wall <= 90 วิ, RSS <= 700 MB |
+| 100,000 <= T < 400,000 | 25 MB | wall <= 90 วิ, RSS <= 900 MB |
+| T >= 400,000 | 100 MB | wall <= 120 วิ, RSS <= 1 GB |
+
+- streaming บังคับถ้า R_buffer - R_stream > 200 MB ที่ขนาดที่เลือก
+- ถ้า J > 8 เท่าของขนาด code → เพิ่ม gzip ให้ JSONL ก่อน M1b
+
+### 14.3 R1 (Job Object) — เกณฑ์ตัดสินล่วงหน้า
+- memory cap 512MB: ต้อง kill ภายใน 2.0 วิหลังเกิน cap และ process tree หมดภายใน 1.0 วิ
+- ActiveProcessLimit=1: การ spawn child ต้องล้มเหลว (child count = 0)
+- wall watchdog 120 วิ: ยิงที่ 120 ± 2 วิ
+- ถ้าข้อใดไม่ผ่าน → ใช้แผนสำรอง R1 (จำกัดเวลาอย่างเดียว + บันทึกว่า memory cap ใช้ไม่ได้), retry ได้ไม่เกิน 2 ครั้ง
+
+### 14.4 T2 — เพดานตัวเลขของ loader
+- sections <= 96 · imports <= 4,096 · exports <= 65,535
+- resource entries <= 4,096 · resource depth <= 8
+- raw section เดียว <= 512 MB · ไฟล์ <= 2 GB
+
+### 14.5 นิยาม failed / degraded + diagnostic namespace
+- **failed** = header / optional header / section table อ่านไม่ได้ หรือชนเพดาน T2 → exit 3
+- **degraded** = header + section table ใช้ได้ แต่ข้อมูลบางส่วนอ่านไม่ได้ (section data ขาด) → exit 2
+- diagnostic codes (namespace pe.*): `pe.header.truncated`, `pe.coff.truncated`, `pe.sectab.truncated`, `pe.section.truncated`, `pe.sectab.cap_exceeded`, `pe.opt.truncated`, `pe.lfanew.out_of_range`
+- f1 (NumberOfSections=0xFFFF) คาด diagnostic เป็น `pe.sectab.cap_exceeded`
+
+### 14.6 Fixture inventory (frozen, tracked) + hash ของไฟล์คุม
+frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.exe 7970DD44…, c.exe 8CDE9462…, memhog.exe, spawner.exe, spin.exe, b_packed.exe 04C212E1…
+- `fixtures/frozen/manifest.json` sha256 = 2DF65578A6B5DE23B35232AA84B54C03FF72DF0D5217F0EAA066825EF458D001
+- `fixtures/toolchain-manifest.json` sha256 = 322F22AC00207C1B67AA68D3E0838DA70C6ACCAF42D71BB2F38A8E40AFD0831A
+- `fixtures/corrupt-manifest.json` sha256 = 5F3349C1D54DA66F87E006B6C8C0D447CF9D570E48BC15E787E9F2EC86098623
+- `fixtures/derive_corrupt.py` sha256 = 0AC43E6737F3D489C9E8993EA5403A3CD1D868B84F3E7AB8F9A654F6C3D8DBD2
+- derived cases (ไม่ commit ไบนารี): t1 34B9348E…, t2 AF6CEC57…, t3 18C07F4A…, t4 3DD3BF88…, t5 806569CC…, f1 C16E2945…, f2 1F1B291D…, f3 83C21954…
+
+### 14.7 UPX
+- UPX 5.2.1 (ใหม่ที่สุดที่ผ่านเกณฑ์อายุ 14 วัน) · checksum_source = GitHub asset digest (API), ไม่มีไฟล์ checksum จากผู้เผยแพร่
+
 ## 13. Change Log
 - v1: โครงแรก (ARCHITECTURE.md)
 - v2: เพิ่ม threat model, risks, open decisions, DoD; precision ของ AC
@@ -282,3 +332,4 @@
 - v4: Job Object ไม่ใช่ security boundary, T8/T9, สมมติฐานผู้โจมตี, risks + indicator/fallback (R1,R3,R6-R9), DoD หลักฐานต้องรันซ้ำได้/ห้าม skip/clean venv/blocker definition, ตัดสิน D1-D4, ย้าย AC-10 ไป milestone API
 - v4 final (numbers TBD pending S1): watchdog 120 วิ (เกณฑ์วัดยัง 60 วิ), exit code 5 = internal error + stdout contract, S1 ต้องจบก่อน sandbox runner, spike governance (spikes/, pre-registered thresholds, v4.1)
 - กติกา: การลดเกณฑ์ใด ๆ ต้องบันทึกที่นี่พร้อมเหตุผล
+- v4.1 (pre-spike lock): ยืนยัน a.exe = PE32+ x64 (0x8664/0x20B, OptSize 240); เพิ่มตัวเลข S1 (T/R/J), R1 (512MB cap, 2s kill, 120s watchdog), เพดาน T2, นิยาม failed/degraded + diagnostic pe.*, hash ของ manifest 3 ไฟล์ + สคริปต์, รายการ fixture/derived cases
