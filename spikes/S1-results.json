@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0.0",
+  "spike": "S1",
+  "target": "fixtures/frozen/a.exe",
+  "bytes_full_text": 537088,
+  "instructions_full_text": 200850,
+  "full_text_seconds": 0.326,
+  "B": 2.6740751804829475,
+  "T_median": 627159.2263080244,
+  "runs": [
+    0.322,
+    0.32,
+    0.319
+  ],
+  "counts": [
+    200850,
+    200850,
+    200850
+  ],
+  "capstone": {
+    "dist": "5.0.9",
+    "module": "5.0.7",
+    "core": "5.0.1280"
+  },
+  "python": "3.12.10",
+  "platform_win32_ver": "10.0.26300",
+  "jsonl": {
+    "bytes_per_mb": 14383477,
+    "ratio": 13.72,
+    "gzip_required": true
+  },
+  "memory": {
+    "stream": {
+      "baseline_mb": 26.01,
+      "peak_mb": 99.05,
+      "delta_mb": 73.04
+    },
+    "buffer": {
+      "baseline_mb": 25.93,
+      "peak_mb": 109.6,
+      "delta_mb": 83.67
+    },
+    "delta_r_mb": 10.62
+  },
+  "measurement_method": "psapi.GetProcessMemoryInfo via ctypes",
+  "notes": "initial 0-reading bug fixed: call K32GetProcessMemoryInfo with argtypes/restype set",
+  "computed_fixture_size_mb": 70
+}
