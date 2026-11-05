@@ -5,3 +5,5 @@ fixtures/out/
 fixtures/*.log
 fixtures/audit/
 spikes/**/out/
+__pycache__/
+*.pyc
