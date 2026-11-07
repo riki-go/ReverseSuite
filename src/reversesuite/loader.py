@@ -240,3 +240,46 @@ def text_bytes(data: bytes) -> bytes:
             rs, rp = struct.unpack_from("<II", data, off + 16)
             return data[rp:rp + rs]
     raise ValueError("no .text section")
+
+def export_addresses(data: bytes) -> list[int]:
+    """Map export RVAs into the disassembly address space (0x1000 + offset in .text)."""
+    e = struct.unpack_from("<I", data, 0x3C)[0]
+    n = struct.unpack_from("<H", data, e + 6)[0]
+    o = struct.unpack_from("<H", data, e + 20)[0]
+    magic = struct.unpack_from("<H", data, e + 24)[0]
+    dir_base = e + 24 + (96 if magic == 0x10B else 112)
+    exp_rva, exp_size = struct.unpack_from("<II", data, dir_base)
+    if not exp_rva or not exp_size:
+        return []
+    table = e + 4 + 20 + o
+    text_vaddr = None
+    text_size = 0
+    exp_off = None
+    for i in range(n):
+        off = table + i * 40
+        name = data[off:off + 8].rstrip(b"\x00")
+        vsize, vaddr = struct.unpack_from("<II", data, off + 8)
+        rsize, roff = struct.unpack_from("<II", data, off + 16)
+        if name == b".text":
+            text_vaddr, text_size = vaddr, rsize
+        if vaddr <= exp_rva < vaddr + max(vsize, rsize):
+            exp_off = roff + (exp_rva - vaddr)
+    if text_vaddr is None or exp_off is None or exp_off + 40 > len(data):
+        return []
+    count = struct.unpack_from("<I", data, exp_off + 24)[0]
+    funcs_rva = struct.unpack_from("<I", data, exp_off + 28)[0]
+    if not funcs_rva:
+        return []
+    funcs_off = exp_off + (funcs_rva - exp_rva)
+    out = []
+    for k in range(min(count, 65535)):
+        pos = funcs_off + 4 * k
+        if pos + 4 > len(data):
+            break
+        rva = struct.unpack_from("<I", data, pos)[0]
+        if not rva or rva < text_vaddr:
+            continue
+        offset = rva - text_vaddr
+        if offset < text_size:
+            out.append(0x1000 + offset)
+    return out

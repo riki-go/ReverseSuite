@@ -10,6 +10,7 @@ import os
 import hashlib
 import shutil
 
+from . import functions as functions_mod
 from . import cache as cache_mod, disasm, loader
 
 EXIT_OK, EXIT_DEGRADED, EXIT_FAILED, EXIT_USAGE, EXIT_INTERNAL = 0, 2, 3, 4, 5
@@ -29,7 +30,39 @@ def main(argv: list[str] | None = None) -> int:
     dis.add_argument("--limit-bytes", type=int, default=0, help="disassemble only the first N bytes of .text")
     dis.add_argument("--workers", type=int, default=1, help="parallel worker processes")
     dis.add_argument("--cache-dir", default="", help="enable artifact cache in this directory")
+    fn = sub.add_parser("functions", help="discover function starts heuristically")
+    fn.add_argument("path")
+    fn.add_argument("--json", action="store_true", help="emit JSON array on stdout")
+    fn.add_argument("--limit-bytes", type=int, default=0)
+    fn.add_argument("--max-functions", type=int, default=200000)
     args = parser.parse_args(argv)
+
+    if args.cmd == "functions":
+        try:
+            with open(args.path, "rb") as fh:
+                data = fh.read()
+        except OSError as exc:
+            print(f"cannot read input: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        try:
+            text = loader.text_bytes(data)
+            exports = loader.export_addresses(data)
+        except Exception as exc:
+            print(f"cannot locate sections: {exc}", file=sys.stderr)
+            return EXIT_FAILED
+        if args.limit_bytes:
+            text = text[: args.limit_bytes]
+        found = functions_mod.discover(text, exports=exports)
+        found = found[: args.max_functions]
+        payload = {"count": len(found), "functions": [f.as_dict() for f in found]}
+        if args.json:
+            sys.stdout.write(json.dumps(payload) + chr(10))
+        else:
+            print(f"functions: {len(found)}")
+            for item in found[:10]:
+                srcs = ",".join(item.sources)
+                print("  0x%x size=%d sources=%s conf=%d" % (item.start, item.size, srcs, item.confidence_permille))
+        return EXIT_OK
 
     if args.cmd == "disasm":
         if not args.path or not args.out:
