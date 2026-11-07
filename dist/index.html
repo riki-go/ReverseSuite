@@ -5,6 +5,7 @@ body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:72rem;color:#111}
 h1{margin:0 0 .3rem}h2{margin:1.6rem 0 .4rem;font-size:1.05rem}
 input,button{font:inherit;padding:.3rem .5rem}
 input[type=text],input[type=password]{min-width:22rem}
+textarea{width:32rem;min-height:2.4rem;font-family:ui-monospace,monospace;font-size:12px;resize:vertical}
 pre{background:#f4f4f4;padding:1rem;overflow:auto;max-height:22rem;white-space:pre-wrap}
 table{border-collapse:collapse;margin:.5rem 0;width:100%}
 td,th{border:1px solid #ddd;padding:.2rem .5rem;text-align:left;font-family:ui-monospace,monospace;font-size:12px}
@@ -20,14 +21,14 @@ th{background:#f7f7f7}.muted{color:#666}
 <span class="muted">desktop app fills this automatically; otherwise copy <code>token</code> from <code>%LOCALAPPDATA%\\ReverseSuite\\session.json</code></span></div>
 
 <h2>Analyze</h2>
-<div class="row"><input id="path" type="text" placeholder="absolute path to a .exe inside the allowed root">
+<div class="row"><textarea id="path" rows="1" placeholder="C:/Users/you/sample.exe (must be inside the allowed root)"></textarea>
 <button id="run">analyze</button></div>
 <p class="muted" id="roothint"></p>
 <pre id="out">ready</pre>
 
 <h2>Diff &amp; Report</h2>
-<div class="row"><input id="left" type="text" placeholder="left binary path">
-<input id="right" type="text" placeholder="right binary path">
+<div class="row"><textarea id="left" rows="1" placeholder="left binary path"></textarea>
+<textarea id="right" rows="1" placeholder="right binary path"></textarea>
 <label><input id="thunks" type="checkbox"> ignore thunks</label></div>
 <div class="row"><button id="diff">run diff</button>
 <button id="report">download report</button><span id="diffstate" class="muted"></span></div>

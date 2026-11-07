@@ -174,6 +174,17 @@ class ApiTests(unittest.TestCase):
         status, _, _ = self.request("POST", "/diff", body={"left_path": "x", "right_path": "y"})
         self.assertEqual(status, 401)
 
+    def test_favicon_is_served_without_token(self):
+        status, text, headers = self.request("GET", "/favicon.ico")
+        self.assertEqual(status, 204)
+        self.assertEqual(text, "")
+
+    def test_path_fields_are_textareas(self):
+        status, text, _ = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn('<textarea id="path"', text)
+        self.assertIn('<textarea id="left"', text)
+
     def test_ui_shell_has_diff_section(self):
         status, text, _ = self.request("GET", "/")
         self.assertEqual(status, 200)

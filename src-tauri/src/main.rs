@@ -64,9 +64,10 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(Backend(Mutex::new(None)))
         .setup(move |app| {
+            let js_token = serde_json::to_string(&token).unwrap_or_else(|_| "\"\"".to_string());
             let script = format!(
-                "window.__rs_token='{}';try{{sessionStorage.setItem('rs-token','{}');}}catch(e){{}}",
-                token, token
+                "window.__rs_token={t};try{{sessionStorage.setItem('rs-token',{t});}}catch(e){{}}",
+                t = js_token
             );
             // A webview needs an interactive desktop session; when the app is started
             // from a service/session-0 context the build fails. Keep going headless so
