@@ -227,3 +227,16 @@ def _parse_exports(data: bytes, sections: List[Section]) -> int:
         return 0
     count = _u32(data, off + 20)
     return count if count <= MAX_EXPORTS else MAX_EXPORTS
+
+def text_bytes(data: bytes) -> bytes:
+    """Return the raw bytes of the .text section."""
+    e = struct.unpack_from("<I", data, 0x3C)[0]
+    n = struct.unpack_from("<H", data, e + 6)[0]
+    o = struct.unpack_from("<H", data, e + 20)[0]
+    table = e + 4 + 20 + o
+    for i in range(n):
+        off = table + i * 40
+        if data[off:off + 8].rstrip(b"\x00") == b".text":
+            rs, rp = struct.unpack_from("<II", data, off + 16)
+            return data[rp:rp + rs]
+    raise ValueError("no .text section")
