@@ -818,6 +818,21 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                 return None
             return path
 
+        def _acquire(self, raw: str, tempdirs: list):
+            """Resolve one input: URL (downloaded), upload id, or local path."""
+            if not raw:
+                return None, "path_not_found"
+            if is_url(raw):
+                if not url_allowed(raw, allow_private_urls):
+                    return None, "url_host_not_allowed"
+                try:
+                    target, tempdir = download_to_temp(raw)
+                except FetchError as exc:
+                    return None, exc.code
+                tempdirs.append(tempdir)
+                return target, None
+            return resolve_path(root, raw)
+
         def _purge_uploads(self) -> None:
             now = time.monotonic()
             for key, (path, stamp) in list(self.uploads.items()):
@@ -998,22 +1013,25 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                     return
                 left_upload = str(payload.get("left_upload_id", "")).strip()
                 right_upload = str(payload.get("right_upload_id", "")).strip()
-                if left_upload or right_upload:
-                    left = self._resolve_upload(left_upload)
-                    right = self._resolve_upload(right_upload)
-                    left_err = None if left is not None else "upload_not_found"
-                    right_err = None if right is not None else "upload_not_found"
-                else:
-                    left, left_err = resolve_path(root, str(payload.get("left_path", "")).strip())
-                    right, right_err = resolve_path(root, str(payload.get("right_path", "")).strip())
-                if left is None or right is None:
-                    code = 403 if "path_not_allowed" in (left_err, right_err) else 400
-                    self._send(code, {"error": left_err or right_err})
-                    return
-                if not left.is_file() or not right.is_file():
-                    self._send(400, {"error": "path_not_found"})
-                    return
+                left_raw = str(payload.get("left_path", "")).strip()
+                right_raw = str(payload.get("right_path", "")).strip()
+                tempdirs = []
                 try:
+                    left = self._resolve_upload(left_upload) if left_upload else None
+                    right = self._resolve_upload(right_upload) if right_upload else None
+                    left_err = "upload_not_found" if left_upload and left is None else None
+                    right_err = "upload_not_found" if right_upload and right is None else None
+                    if left is None and left_err is None:
+                        left, left_err = self._acquire(left_raw, tempdirs)
+                    if right is None and right_err is None:
+                        right, right_err = self._acquire(right_raw, tempdirs)
+                    if left is None or right is None:
+                        code = 403 if "path_not_allowed" in (left_err, right_err) else 400
+                        self._send(code, {"error": left_err or right_err})
+                        return
+                    if not left.is_file() or not right.is_file():
+                        self._send(400, {"error": "path_not_found"})
+                        return
                     result = diff_mod.diff_graphs(callgraph.build(left.read_bytes()).as_dict(),
                                                   callgraph.build(right.read_bytes()).as_dict(),
                                                   ignore_thunks=bool(payload.get("ignore_thunks", False)))

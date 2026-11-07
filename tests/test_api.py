@@ -383,6 +383,69 @@ class ApiTests(unittest.TestCase):
         self.assertGreater(summary["nodes"]["added"], 0)
         self.assertGreater(summary["nodes"]["removed"], 0)
 
+    def _serve_binaries(self, mapping):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                payload = mapping.get(self.path)
+                if payload is None:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return srv.server_address[1]
+
+    def test_diff_accepts_absolute_paths_outside_root(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            left = Path(tmp) / "b.exe"
+            right = Path(tmp) / "a.exe"
+            left.write_bytes((ROOT / "b.exe").read_bytes())
+            right.write_bytes((ROOT / "a.exe").read_bytes())
+            status, text, _ = self.open_request("POST", "/diff", token=self.open_token,
+                                                body={"left_path": str(left),
+                                                      "right_path": str(right)})
+        self.assertEqual(status, 200, text[:300])
+        self.assertGreater(json.loads(text)["summary"]["nodes"]["added"], 0)
+
+    def test_diff_accepts_urls(self):
+        port = self._serve_binaries({"/b.exe": (ROOT / "b.exe").read_bytes(),
+                                     "/a.exe": (ROOT / "a.exe").read_bytes()})
+        status, text, _ = self.open_request("POST", "/diff", token=self.open_token,
+                                            body={"left_path": "http://127.0.0.1:%d/b.exe" % port,
+                                                  "right_path": "http://127.0.0.1:%d/a.exe" % port})
+        self.assertEqual(status, 200, text[:300])
+        summary = json.loads(text)["summary"]
+        self.assertGreater(summary["nodes"]["removed"], 0)
+
+    def test_report_accepts_urls(self):
+        port = self._serve_binaries({"/b.exe": (ROOT / "b.exe").read_bytes(),
+                                     "/a.exe": (ROOT / "a.exe").read_bytes()})
+        status, text, headers = self.open_request("POST", "/report", token=self.open_token,
+                                                  body={"left_path": "http://127.0.0.1:%d/b.exe" % port,
+                                                        "right_path": "http://127.0.0.1:%d/a.exe" % port,
+                                                        "format": "html"})
+        self.assertEqual(status, 200, text[:300])
+        self.assertIn("attachment;", headers.get("Content-Disposition", ""))
+
+    def test_locked_server_rejects_outside_path_for_diff(self):
+        status, text, _ = self.request("POST", "/diff", token=self.token,
+                                       body={"left_path": "C:/Windows/System32/notepad.exe",
+                                             "right_path": str(ROOT / "b.exe")})
+        self.assertEqual(status, 403)
+
     def test_ui_exposes_interactive_graph(self):
         status, text, _ = self.request("GET", "/")
         self.assertEqual(status, 200)
