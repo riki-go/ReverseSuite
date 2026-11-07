@@ -13,6 +13,7 @@ import shutil
 from . import functions as functions_mod
 from . import callgraph as callgraph_mod
 from . import diff as diff_mod
+from . import api as api_mod
 from . import report as report_mod
 from . import strings as strings_mod
 from . import cache as cache_mod, disasm, loader, schema
@@ -44,6 +45,11 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--min-length", type=int, default=strings_mod.MIN_LENGTH)
     st.add_argument("--workers", type=int, default=6, help="worker processes for the xref pass")
     st.add_argument("--no-xref", action="store_true", help="skip string xref resolution")
+    sv = sub.add_parser("serve", help="start the local API/UI server")
+    sv.add_argument("--root", required=True, help="allowlisted directory")
+    sv.add_argument("--port", type=int, default=0)
+    sv.add_argument("--workers", type=int, default=1)
+    sv.add_argument("--token", default="", help="fixed token (default: random per session)")
     rp = sub.add_parser("report", help="render a diff report as Markdown or HTML")
     rp.add_argument("left")
     rp.add_argument("right")
@@ -65,6 +71,27 @@ def main(argv: list[str] | None = None) -> int:
     fn.add_argument("--max-functions", type=int, default=200000)
     args = parser.parse_args(argv)
 
+    if args.cmd == "serve":
+        root = __import__("pathlib").Path(args.root).resolve()
+        if not root.is_dir():
+            print(f"root is not a directory: {root}", file=sys.stderr)
+            return EXIT_USAGE
+        try:
+            server, token, thread = api_mod.serve(root, args.token or None, args.port, args.workers)
+        except OSError as exc:
+            print(f"cannot bind: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        sys.stderr.write("token: %s\n" % token)
+        sys.stderr.flush()
+        sys.stdout.write(json.dumps({"url": "http://127.0.0.1:%d/" % server.server_address[1],
+                                     "port": server.server_address[1]}) + chr(10))
+        sys.stdout.flush()
+        try:
+            while True:
+                thread.join(1.0)
+        except KeyboardInterrupt:
+            server.shutdown()
+        return EXIT_OK
     if args.cmd == "report":
         def load_doc(path):
             if path.lower().endswith(".json"):

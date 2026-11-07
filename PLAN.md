@@ -227,8 +227,14 @@
 - ผ่านเมื่อ: output **deterministic** (input เดิม → ไบต์เดิม), HTML ไม่มี tag ดิบจากข้อมูลที่ escape (ทดสอบด้วย `<script>alert(1)</script>`), ตัวเลขในรายงานตรงกับ JSON diff ทุกช่อง, self-diff ต้องขึ้น "No changes detected", ไฟล์ใหญ่สุดไม่เกิน ~40 KB ในเคส b vs a
 - ผลวัด: b vs a (`--ignore-thunks`) → HTML **10,323 bytes**, deterministic, escape ผ่าน, unittest 83/83 OK
 - ยังไม่ทำ: PDF, กราฟภาพ (graphviz), การแนบ finding/string ในรายงาน (ปัจจุบันรายงานเฉพาะ node/edge ของ diff)
-### AC-10 (ย้ายไป milestone M-API — ไม่ใช่ M1)
+### AC-10 Local API security (ปิดแล้วใน M3 slice 1)
 - ไม่มี token -> 401; Host ไม่ใช่ localhost -> 403; Origin แปลกปลอม -> 403; ไม่มี CORS wildcard
+- ผลวัด: `tests/test_api.py` 11 เคสผ่านทั้งหมด — ไม่มี token 401, token ทาง query string **ไม่** ผ่าน (401), Host `evil.example` 403, Origin `https://evil.example` 403, Origin `http://localhost:3000` 200, ไม่มี header `Access-Control-Allow-Origin` ในทุก response, path นอก allowlist 403
+
+### AC-21 Local UI shell (M3 slice 1)
+- `GET /` เสิร์ฟหน้า HTML เดียวจบ (ไม่มี asset ภายนอก) พร้อม `Content-Security-Policy: default-src none; style-src unsafe-inline; script-src unsafe-inline` และ `X-Content-Type-Options: nosniff`
+- token เก็บใน `sessionStorage` ของแท็บและส่งผ่าน `Authorization` เท่านั้น — ห้ามอยู่ใน URL/query
+- ผ่านเมื่อ: หน้าโหลดได้โดยไม่ต้องมี token แต่ยังตรวจ Host/Origin, ไม่มี CORS wildcard, และการเรียก `/analyze` จากหน้าเว็บใช้ header เท่านั้น
 
 ## 7b. M1 split (ตามรีวิว — M1 ต้องเล็ก)
 - **M1a Base** (ต้องผ่านก่อน): AC-1, AC-4, AC-5, AC-8, AC-11, AC-12, AC-13
@@ -458,3 +464,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.10: M2 slice 2 — diff engine (`src/reversesuite/diff.py`), `node_info` (size + body sha256) ใน graph JSON, subcommand `reversesuite diff <a> <b> [--json] [--ignore-thunks]` รับได้ทั้ง JSON และ PE. ผล AC-18: self-diff 0 change (unchanged 127/127), shifted graph moved 88/88 + edges unchanged 127/127, b vs a +1503/-84/~4 nodes และ edges +5149/-127 (ignore-thunks เหลือ +781), unittest 70/70 OK
 - v4.11: M2 slice 3 — import table + IAT resolution (`loader.imports`, edge kind `import`). b.exe 45/45 import entries ตรง objdump, a.exe 92/92; call graph b.exe direct 71 / import 56 / tail 2 / indirect 33 (site recall 1.0000, precision 0.9843), edges 129. พบว่า a.exe ใช้ incremental-link thunks (`jmp <addr>`) 1,188 ตัว ไม่ใช่ IAT stub จึงคง thunk 4,368 edges ตามจริง. unittest 75/75 OK
 - v4.12: M2 slice 4 — report layer (`src/reversesuite/report.py`) + subcommand `reversesuite report <a> <b> --format md|html --out ... --ignore-thunks`. HTML standalone escape ทุกค่าจากไบแนรี, ตัด 50 แถว/หมวด, deterministic; ตัวอย่าง b vs a (ignore-thunks) = 10,323 bytes. unittest 83/83 OK
+- v4.13: เปิด M3 — local API + UI shell (`src/reversesuite/api.py`) และ subcommand `reversesuite serve --root DIR [--port] [--token]`. ปิด AC-10 ครบ (401/403/no-wildcard/query-token ใช้ไม่ได้) + AC-21 (UI shell, CSP, token ใน sessionStorage). endpoint: `GET /healthz`, `GET /rules`, `POST /analyze` (loader+functions+strings+callgraph, คืน canonical doc + graph), `GET /`. unittest 94/94 OK
