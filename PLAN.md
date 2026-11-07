@@ -160,7 +160,20 @@
 - วิธีตรวจ "ไม่มี process ค้าง": enumerate process ใน job ก่อน/หลัง + ตรวจว่า pid ใหม่ทั้งหมดตายภายใน N วินาที
 - ผ่านเมื่อ: ทุกกรณีคืน diagnostic code เฉพาะ และจำนวน process ใน job = 0 หลังจบ
 
-### AC-12 เพดาน T2 (resource exhaustion)
+### AC-11 Job Object integration (ปิดแล้ว)
+- `src/reversesuite/sandbox.py`: `run_capped(argv, memory_bytes, wallclock_s, active_process_limit)` — `CreateJobObjectW` + `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` (ProcessMemoryLimit/JobMemoryLimit/ActiveProcessLimit/KILL_ON_JOB_CLOSE) แล้ว `CreateProcessW` แบบ `CREATE_SUSPENDED` → `AssignProcessToJobObject` → `ResumeThread` (cap มีผลก่อนรันคำสั่งแรก)
+- timeout → `TerminateJobObject` ทั้ง tree; เก็บ peak memory จาก `QueryInformationJobObject`; capture stdout/stderr ผ่าน anonymous pipe
+- ผลทดสอบจริง (fixtures ที่เราคอมไพล์เอง):
+  - `memhog.exe` + cap 64 MB → **exit 2, `alloc_failed_at=0`, 0.02 s**, peak job 1.7 MB (cap บังคับที่ allocation แรก)
+  - `spin.exe` + wallclock 1.0 s → **timed_out=true, killed_tree=true, 1.02 s**, ไม่มี process ค้าง
+  - `spawner.exe` + `ActiveProcessLimit=1` → **`child_spawn_failed=1816`** (ERROR_NOT_ENOUGH_QUOTA) child ถูกบล็อกจริง
+  - หลังทุกเคส: `tasklist` ไม่พบ spin/memhog/spawner ค้าง = 0
+- ข้อจำกัด: sandbox นี้ใช้กับ helper ของเราเท่านั้น (target ยังคง static-only); ไม่ได้ใช้เป็น security boundary เต็มรูปแบบ (ดู PLAN §3)
+
+### AC-12 เพดาน T2 (ปิดแล้ว)
+- loader บังคับเพดาน `MAX_SECTIONS=96`, `MAX_IMPORT_DLLS=4096`, `MAX_IMPORT_ENTRIES=65535`, `MAX_RAW_SECTION=512 MB`, `MAX_FILE=2 GB`
+- ผลทดสอบ: PE สังเคราะห์ 97 sections → `status=failed` + diagnostic `pe.sectab.cap_exceeded`; section table ที่ล้นไฟล์ → `pe.sectab.truncated` (ทั้งคู่ไม่ OOM, ไม่ throw ออกนอก API)
+### AC-12 เพดาน T2 (resource exhaustion) — ดูผลรวมด้านบน
 - fixture ที่มี section/import/resource จำนวนมากผิดปกติ และ directory ซ้อนลึก
 - ผ่านเมื่อ: loader ปฏิเสธพร้อม diagnostic ที่ระบุเพดานที่ชน (ไม่ OOM) + status=**failed** + exit code **3**
 
@@ -502,3 +515,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.20: ปลดล็อก path + Analyze from URL. `serve --root` กลายเป็น optional (ไม่ระบุ = รับ absolute path ใดก็ได้บนเครื่อง; ระบุ = โหมดล็อกเหมือนเดิม) — desktop wrapper ไม่ส่ง `--root` แล้ว, `resolve_path()` เช็กแค่ว่า absolute + มีจริง, relative path → 403. เพิ่ม `POST /analyze` รับ `http(s)://` ได้: ดาวน์โหลดลง `tempfile.mkdtemp()` (เพดาน 256 MB, timeout 30 s, ตรวจ magic `MZ`), วิเคราะห์, แล้ว `shutil.rmtree` ใน `finally` — error เป็น 400 พร้อมรหัส (`http_404`, `not_a_pe_file`, `file_too_large`, `download_failed`). UI: placeholder "Absolute path (C:/...) or URL (https://...)". ผลทดสอบสดบน sidecar ที่แพ็กแล้ว: absolute path นอก root → 200/21006 B, relative → 403, URL → 200/21006 B + temp ถูกเก็บกวาด, URL 404 → 400. unittest 111/111 OK; MSI 13:55 → 14,290,944 B sha256 3bc1e4d5...
 - v5.0: เปิด M5 — interactive SVG graph ใน UI (Vanilla JS + `createElementNS`, ไม่มีไลบรารีภายนอก, CSP เดิม). ปุ่ม view call graph / view diff graph / clear; ลาก node, pan, wheel zoom 0.25–4x; สีตาม kind และ added/removed. ตรวจด้วย `node --check` + Chrome headless (element ครบ, pill แสดงผลจริง, console ว่าง). unittest 112/112; MSI 14:12 → 14,295,040 B sha256 d003d922...
 - v5.1: ปิด AC-2 — เพิ่ม `src/reversesuite/disasm_compare.py` (+ `spikes/ac2_metrics.py`, `tests/test_disasm_compare.py`). วัดแบบ per-address decode เทียบ objdump 2.47: a.exe 0.999122, b.exe 0.998138, b_unstripped.exe 0.998138 (เกณฑ์ ≥0.99). unittest 119/119 OK
+- v5.2: ปิด AC-11/AC-12 — เพิ่ม `sandbox.py` (Job Object ผ่าน ctypes, suspended-start, memory/process/time caps) + `tests/test_sandbox.py` 7 เคส. หลักฐาน: memhog cap → exit 2 ที่ 0.02 s, spin → killed ที่ 1.02 s, spawner → `child_spawn_failed=1816`, ไม่มี process ค้าง. unittest 126/126 OK
