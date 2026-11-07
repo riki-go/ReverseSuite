@@ -22,7 +22,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("functions 88", out)
         self.assertIn("strings  96 (ascii=96 utf16le=0) xref=20", out)
         self.assertIn("diagnostics 0", out)
-        self.assertIn("edges    145  indirect_calls 17", out)
+        self.assertIn("edges    146  indirect_calls 16", out)
 
     def test_analyze_json_is_canonical(self):
         code, out, err = run(["analyze", "fixtures/frozen/b.exe", "--json"])
@@ -52,27 +52,27 @@ class CliTests(unittest.TestCase):
     def test_calls_subcommand(self):
         code, out, err = run(["calls", "fixtures/frozen/b.exe"])
         self.assertEqual(code, 0, err)
-        self.assertIn("nodes 88 edges 145 (direct=71, import=56, indirect_resolved=16, tail=2) indirect 17 imports 56", out)
+        self.assertIn("nodes 88 edges 146 (direct=71, import=56, indirect_resolved=17, tail=2) indirect 16 imports 56", out)
 
     def test_calls_json(self):
         code, out, err = run(["calls", "fixtures/frozen/b.exe", "--json"])
         self.assertEqual(code, 0, err)
         doc = json.loads(out)
         self.assertEqual(len(doc["nodes"]), 88)
-        self.assertEqual(len(doc["edges"]), 145)
-        self.assertEqual(doc["indirect_calls"], 17)
+        self.assertEqual(len(doc["edges"]), 146)
+        self.assertEqual(doc["indirect_calls"], 16)
 
     def test_diff_same_file_is_empty(self):
         code, out, err = run(["diff", "fixtures/frozen/b.exe", "fixtures/frozen/b.exe"])
         self.assertEqual(code, 0, err)
         self.assertIn("nodes  +0 -0 ~0(moved) ~0(similar)", out)
-        self.assertIn("edges  +0 -0 =145", out)
+        self.assertIn("edges  +0 -0 =146", out)
 
     def test_diff_json_output(self):
         code, out, err = run(["diff", "fixtures/frozen/b.exe", "fixtures/frozen/b.exe", "--json"])
         self.assertEqual(code, 0, err)
         doc = json.loads(out)
-        self.assertEqual(doc["summary"]["edges"]["unchanged"], 145)
+        self.assertEqual(doc["summary"]["edges"]["unchanged"], 146)
         self.assertEqual(doc["summary"]["nodes"]["added"], 0)
 
     def test_report_to_file(self):

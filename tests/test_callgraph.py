@@ -49,7 +49,7 @@ class CallGraphTests(unittest.TestCase):
         self.assertTrue(all(e.callee in self.graph.nodes for e in tails))
 
     def test_unresolved_indirect_calls_never_become_edges(self):
-        self.assertEqual(self.graph.indirect_calls, 17)
+        self.assertEqual(self.graph.indirect_calls, 16)
         self.assertTrue(all(e.kind != callgraph.KIND_INDIRECT for e in self.graph.edges))
 
     def test_indirect_call_resolved_through_iat_load(self):
@@ -57,8 +57,9 @@ class CallGraphTests(unittest.TestCase):
         self.assertEqual(edge.kind, callgraph.KIND_INDIRECT_RESOLVED)
         self.assertTrue(edge.name.endswith("!Sleep"), edge.name)
         self.assertEqual(edge.via, 0x10E8)
-        self.assertEqual(self.graph.resolved_indirect,
-                         len([e for e in self.graph.edges if e.kind == callgraph.KIND_INDIRECT_RESOLVED]))
+        total_resolved = len([e for e in self.graph.edges
+                              if e.kind == callgraph.KIND_INDIRECT_RESOLVED])
+        self.assertEqual(self.graph.resolved_indirect + self.graph.valueflow_resolved, total_resolved)
 
     def test_deterministic(self):
         again = callgraph.build(self.data)

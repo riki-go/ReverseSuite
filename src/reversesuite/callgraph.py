@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import capstone
 
-from . import disasm, functions, loader, schema
+from . import disasm, functions, loader, schema, valueflow
 
 RULE_EDGE = "pe.callgraph.edge"
 
@@ -59,6 +59,7 @@ class CallGraph:
     indirect_calls: int = 0
     import_calls: int = 0
     resolved_indirect: int = 0
+    valueflow_resolved: int = 0
     unresolved_calls: int = 0
     tail_calls: int = 0
     thunk_calls: int = 0
@@ -78,6 +79,7 @@ class CallGraph:
             "indirect_calls": self.indirect_calls,
             "import_calls": self.import_calls,
             "resolved_indirect": self.resolved_indirect,
+            "valueflow_resolved": self.valueflow_resolved,
             "unresolved_calls": self.unresolved_calls,
             "tail_calls": self.tail_calls,
             "thunk_calls": self.thunk_calls,
@@ -175,6 +177,7 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
     tails = 0
     thunked = 0
     resolved_indirect = 0
+    unresolved_sites: List[int] = []
     provenance: dict = {}
     step = 0
     for insn in disasm.iter_instructions(text, base, engine):
@@ -226,6 +229,7 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
                         resolved_indirect += 1
                         continue
                 indirect += 1
+                unresolved_sites.append(insn.address)
                 continue
             if target in iat:
                 edges.append(CallEdge(caller, None, insn.address, KIND_IMPORT, iat[target]))
@@ -253,10 +257,43 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
                 continue
             edges.append(CallEdge(caller, target, insn.address, KIND_TAIL))
             tails += 1
+    # M6.1: intra-procedural value-set pass for sites that are still unresolved.
+    resolved_sites = {e.site for e in edges}
+    pending = sorted(site for site in set(unresolved_sites) if site not in resolved_sites)
+    extra_resolved = 0
+    if pending:
+        view = valueflow.ImageView(data)
+        regions: dict = {}
+        for site in pending:
+            start = caller_of(site)
+            if start is None:
+                continue
+            regions.setdefault(start, []).append(site)
+        starts_list = sorted(node_set)
+        import bisect as _bisect
+        for start, sites in sorted(regions.items()):
+            idx = _bisect.bisect_right(starts_list, start)
+            end = starts_list[idx] if idx < len(starts_list) else limit
+            off = start - base
+            seq = list(engine.disasm(text[off:end - base], start))
+            if not seq:
+                continue
+            for call in valueflow.analyze_function(seq, view, base, node_set):
+                if call.site in resolved_sites:
+                    continue
+                edges.append(CallEdge(start, call.target, call.site,
+                                       KIND_INDIRECT_RESOLVED, None, call.via))
+                resolved_sites.add(call.site)
+                extra_resolved += 1
+
+    if extra_resolved:
+        indirect = max(0, indirect - extra_resolved)
+
     edges.sort(key=lambda e: (e.caller, e.site, e.callee or 0))
     return CallGraph(nodes=nodes, edges=tuple(edges), node_info=tuple(infos),
                      indirect_calls=indirect, import_calls=imports_hit,
                      resolved_indirect=resolved_indirect,
+                     valueflow_resolved=extra_resolved,
                      unresolved_calls=unresolved, tail_calls=tails, thunk_calls=thunked)
 
 

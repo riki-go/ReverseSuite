@@ -1,4 +1,4 @@
-# ReverseSuite — PLAN v6.1 (Release 0.2.1, feature freeze)
+# ReverseSuite — PLAN v6.2 (M6.1 value-set slice)
 
 เกณฑ์ผูกกับ Definition of Done ของแต่ละ milestone ไม่ผูกกับจำนวนสัปดาห์
 
@@ -566,3 +566,11 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - **.gitignore**: ยืนยันว่าครบ `tools/`, `.venv/`, `node_modules/`, `__pycache__/`, `src-tauri/target/`, `fixtures/out/`, `fixtures/audit/` + เพิ่ม `.pytest_cache/`, `.mypy_cache/`
   - **Version 0.2.1**: package.json, tauri.conf.json, Cargo.toml, `ENGINE_BUILD_ID=m5-0.2.1`; MSI `ReverseSuite_0.2.1_x64_en-US.msi` 14,303,232 B sha256 94777c49aa62b8cf15e07a6cf830d3663d0aa18e29b9c5b0b2be5bae8fad0d87
   - unittest **145/145 OK**
+- v6.2 (M6.1 — intra-procedural value-set):
+  - `src/reversesuite/valueflow.py`: abstract value = (address, via) capped at 4 ต่อ key; CFG-lite (leaders = function start, jump targets, fallthrough หลัง jcc); seed ทุก block เพราะโค้ดบางส่วนเข้าถึงผ่าน branch ที่ไม่ model
+  - transfer: `mov imm`, `lea rip`, `mov reg,[rip+slot]` (อ่าน qword จาก section ใดก็ได้ผ่าน `ImageView` แล้ว normalize VA→analysis space), `mov reg,[reg]` (deref 1 ชั้น), `mov reg/slot,reg`, `xor reg,reg`; เขียนแบบอื่น = ล้างค่า
+  - call resolution: เฉพาะเมื่อ value-set เหลือค่าเดียวและค่านั้นเป็น function start (ไม่เดา) → edge `indirect_resolved` + `via` + นับ `valueflow_resolved`; ลด `indirect` ตามจำนวนที่ปิดได้
+  - **ผลจริง b.exe: ปิดได้ 1/17 จุด** (`0x138b → 0x1970`, via `0x1378`, chain global `0x53b0` → data `0x5088` → code `0x1970`) — ไม่ถึง ~10 ตามที่คาด เพราะ 16 จุดที่เหลือเป็น (ก) global ที่เป็น NULL ในไฟล์ (ตั้งค่าตอน runtime) (ข) ค่าจาก parameter/stack (ต้อง inter-procedural = M6.2) (ค) jump table `[rax+rdx*8]` (นอกขอบเขต)
+  - **AC-25c ผ่าน**: site recall 1.0000 (125/125) และ precision ของ edge ชนิด direct+import ยัง 0.9843 (125/127) — edge ที่เพิ่มเป็นชนิด `indirect_resolved` จึงไม่ปนกับตัวเลขเดิม
+  - **AC-25e ผ่าน**: build สองครั้งให้ as_dict เท่ากัน; **perf**: b.exe 0.07 s, a.exe 3.22 s (เพดาน 5 s)
+  - unittest **152/152 OK**
