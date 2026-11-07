@@ -1,0 +1,271 @@
+{
+ "binutils": "GNU objdump (Binutils for MinGW-W64 x86_64, built by Brecht Sanders, r3) 2.47.20260726",
+ "results": [
+  {
+   "reference": 249453,
+   "candidate": 249452,
+   "matched": 249234,
+   "accuracy": 0.999122,
+   "precision": 0.999126,
+   "missing": 1,
+   "extra": 0,
+   "mismatched": 218,
+   "missing_sample": [
+    "0x710fc"
+   ],
+   "extra_sample": [],
+   "mismatch_sample": [
+    {
+     "addr": "0x79d4",
+     "objdump": "mov rax,QWORD PTR gs:0x30",
+     "capstone": "mov rax, qword ptr gs:[0x30]"
+    },
+    {
+     "addr": "0x79ed",
+     "objdump": "mov rax,QWORD PTR gs:0x30",
+     "capstone": "mov rax, qword ptr gs:[0x30]"
+    },
+    {
+     "addr": "0x7a03",
+     "objdump": "lock cmpxchg QWORD PTR [rip+0x957dc],rcx        # 0x9d1e8",
+     "capstone": "lock cmpxchg qword ptr [rip + 0x957dc], rcx"
+    },
+    {
+     "addr": "0x7fdb",
+     "objdump": "W jmp QWORD PTR [rip+0x9e03e]        # 0xa6020",
+     "capstone": "jmp qword ptr [rip + 0x9e03e]"
+    },
+    {
+     "addr": "0x82cf",
+     "objdump": "W jmp QWORD PTR [rip+0x9dd7a]        # 0xa6050",
+     "capstone": "jmp qword ptr [rip + 0x9dd7a]"
+    }
+   ],
+   "sweep": {
+    "reference": 249453,
+    "candidate": 200850,
+    "matched": 200683,
+    "accuracy": 0.804492,
+    "precision": 0.999169,
+    "missing": 48603,
+    "extra": 0,
+    "mismatched": 167,
+    "missing_sample": [
+     "0x710fc",
+     "0x710ff",
+     "0x71103",
+     "0x71107",
+     "0x7110b"
+    ],
+    "extra_sample": [],
+    "mismatch_sample": [
+     {
+      "addr": "0x79d4",
+      "objdump": "mov rax,QWORD PTR gs:0x30",
+      "capstone": "mov rax, qword ptr gs:[0x30]"
+     },
+     {
+      "addr": "0x79ed",
+      "objdump": "mov rax,QWORD PTR gs:0x30",
+      "capstone": "mov rax, qword ptr gs:[0x30]"
+     },
+     {
+      "addr": "0x7a03",
+      "objdump": "lock cmpxchg QWORD PTR [rip+0x957dc],rcx        # 0x9d1e8",
+      "capstone": "lock cmpxchg qword ptr [rip + 0x957dc], rcx"
+     },
+     {
+      "addr": "0x7fdb",
+      "objdump": "W jmp QWORD PTR [rip+0x9e03e]        # 0xa6020",
+      "capstone": "jmp qword ptr [rip + 0x9e03e]"
+     },
+     {
+      "addr": "0x82cf",
+      "objdump": "W jmp QWORD PTR [rip+0x9dd7a]        # 0xa6050",
+      "capstone": "jmp qword ptr [rip + 0x9dd7a]"
+     }
+    ]
+   },
+   "file": "a.exe",
+   "text_bytes": 537088,
+   "image_base": "0x140000000",
+   "text_rva": "0x1000"
+  },
+  {
+   "reference": 2686,
+   "candidate": 2686,
+   "matched": 2681,
+   "accuracy": 0.998138,
+   "precision": 0.998138,
+   "missing": 0,
+   "extra": 0,
+   "mismatched": 5,
+   "missing_sample": [],
+   "extra_sample": [],
+   "mismatch_sample": [
+    {
+     "addr": "0x1118",
+     "objdump": "lock cmpxchg QWORD PTR [rdx],rcx",
+     "capstone": "lock cmpxchg qword ptr [rdx], rcx"
+    },
+    {
+     "addr": "0x1655",
+     "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+     "capstone": "nop word ptr cs:[rax + rax]"
+    },
+    {
+     "addr": "0x1663",
+     "objdump": "xchg ax,ax",
+     "capstone": "nop "
+    },
+    {
+     "addr": "0x1665",
+     "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+     "capstone": "nop word ptr cs:[rax + rax]"
+    },
+    {
+     "addr": "0x174e",
+     "objdump": "W jmp QWORD PTR [rip+0x9b33]        # 0xb288",
+     "capstone": "jmp qword ptr [rip + 0x9b33]"
+    }
+   ],
+   "sweep": {
+    "reference": 2686,
+    "candidate": 2798,
+    "matched": 2681,
+    "accuracy": 0.998138,
+    "precision": 0.958184,
+    "missing": 0,
+    "extra": 112,
+    "mismatched": 5,
+    "missing_sample": [],
+    "extra_sample": [
+     "0x3520",
+     "0x3522",
+     "0x3524",
+     "0x3526",
+     "0x3528"
+    ],
+    "mismatch_sample": [
+     {
+      "addr": "0x1118",
+      "objdump": "lock cmpxchg QWORD PTR [rdx],rcx",
+      "capstone": "lock cmpxchg qword ptr [rdx], rcx"
+     },
+     {
+      "addr": "0x1655",
+      "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+      "capstone": "nop word ptr cs:[rax + rax]"
+     },
+     {
+      "addr": "0x1663",
+      "objdump": "xchg ax,ax",
+      "capstone": "nop "
+     },
+     {
+      "addr": "0x1665",
+      "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+      "capstone": "nop word ptr cs:[rax + rax]"
+     },
+     {
+      "addr": "0x174e",
+      "objdump": "W jmp QWORD PTR [rip+0x9b33]        # 0xb288",
+      "capstone": "jmp qword ptr [rip + 0x9b33]"
+     }
+    ]
+   },
+   "file": "b.exe",
+   "text_bytes": 9728,
+   "image_base": "0x140000000",
+   "text_rva": "0x1000"
+  },
+  {
+   "reference": 2686,
+   "candidate": 2686,
+   "matched": 2681,
+   "accuracy": 0.998138,
+   "precision": 0.998138,
+   "missing": 0,
+   "extra": 0,
+   "mismatched": 5,
+   "missing_sample": [],
+   "extra_sample": [],
+   "mismatch_sample": [
+    {
+     "addr": "0x1118",
+     "objdump": "lock cmpxchg QWORD PTR [rdx],rcx",
+     "capstone": "lock cmpxchg qword ptr [rdx], rcx"
+    },
+    {
+     "addr": "0x1655",
+     "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+     "capstone": "nop word ptr cs:[rax + rax]"
+    },
+    {
+     "addr": "0x1663",
+     "objdump": "xchg ax,ax",
+     "capstone": "nop "
+    },
+    {
+     "addr": "0x1665",
+     "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+     "capstone": "nop word ptr cs:[rax + rax]"
+    },
+    {
+     "addr": "0x174e",
+     "objdump": "W jmp QWORD PTR [rip+0x9b33]        # 14000b288",
+     "capstone": "jmp qword ptr [rip + 0x9b33]"
+    }
+   ],
+   "sweep": {
+    "reference": 2686,
+    "candidate": 2798,
+    "matched": 2681,
+    "accuracy": 0.998138,
+    "precision": 0.958184,
+    "missing": 0,
+    "extra": 112,
+    "mismatched": 5,
+    "missing_sample": [],
+    "extra_sample": [
+     "0x3520",
+     "0x3522",
+     "0x3524",
+     "0x3526",
+     "0x3528"
+    ],
+    "mismatch_sample": [
+     {
+      "addr": "0x1118",
+      "objdump": "lock cmpxchg QWORD PTR [rdx],rcx",
+      "capstone": "lock cmpxchg qword ptr [rdx], rcx"
+     },
+     {
+      "addr": "0x1655",
+      "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+      "capstone": "nop word ptr cs:[rax + rax]"
+     },
+     {
+      "addr": "0x1663",
+      "objdump": "xchg ax,ax",
+      "capstone": "nop "
+     },
+     {
+      "addr": "0x1665",
+      "objdump": "data16 cs nop WORD PTR [rax+rax*1+0x0]",
+      "capstone": "nop word ptr cs:[rax + rax]"
+     },
+     {
+      "addr": "0x174e",
+      "objdump": "W jmp QWORD PTR [rip+0x9b33]        # 14000b288",
+      "capstone": "jmp qword ptr [rip + 0x9b33]"
+     }
+    ]
+   },
+   "file": "b_unstripped.exe",
+   "text_bytes": 9728,
+   "image_base": "0x140000000",
+   "text_rva": "0x1000"
+  }
+ ]
+}

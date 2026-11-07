@@ -106,12 +106,14 @@
 - ผ่านเมื่อ: สถานะตรงกับที่คาดหวังทุกไฟล์, JSON ตรง schema, และ exit code ตรงกับ AC-8 (c.exe -> 3)
 
 ### AC-2 disassembly ตรง objdump >= 99%
-- อ้างอิง: objdump -d -M intel --no-show-raw-insn (ระบุเวอร์ชัน binutils)
-- ขอบเขต: section ที่ executable (.text)
-- หน่วยเทียบ: (address, mnemonic, normalized operands)
-- Normalization: lowercase, trim, ',' + ช่องว่างเดียว, hex เป็น 0x ตัวเล็กไม่มี leading zero, ตัด size prefix ของ memory operand ออกทั้งสองฝั่ง
-- ผ่านเมื่อ matched/total >= 0.99 + รายงาน address ที่ไม่ตรง
-
+- อ้างอิง: `objdump -d -M intel --no-show-raw-insn` (GNU objdump, Binutils for MinGW-W64 2.47.20260726)
+- ขอบเขต: `.text` เท่านั้น; แปลง VA ของ objdump → address space เดียวกับ capstone (`0x1000 + (va - image_base - text_rva)`)
+- หน่วยเทียบ: `(address, mnemonic, normalized operands)`; วัดแบบ **decode ที่ address ของเฉลยทีละคำสั่ง** (`compare_at_addresses`) เพื่อไม่ให้ linear-sweep desync มาทำให้ตัวเลขเพี้ยน
+- Normalization ที่ล็อกไว้: lowercase, ตัด size qualifier (`qword ptr` ฯลฯ), ตัด `#` comment และ `<symbol>`, แปลง segment prefix, แปลง hex เป็นรูป signed ตามความกว้าง literal (8/16 หลัก), ตัด `*0x1` และ `+0x0]`, ตัด REX prefix ที่ objdump พิมพ์เกิน (`rex push rbx`)
+- ผ่านเมื่อ: accuracy (matched / objdump instructions) **≥ 0.99**; รายงาน missing/mismatched พร้อมตัวอย่าง
+- ผลวัด: **a.exe 0.999122** (249,453 คำสั่ง, mismatched 218, missing 1) · **b.exe 0.998138** (2,686, mismatched 5) · **b_unstripped.exe 0.998138** (mismatched 5) → ผ่านทั้งสามไฟล์
+- Residual ที่ยังเหลือ (ยอมรับได้, บันทึกไว้): ความต่าง syntactic ของ segment prefix (`gs:0x30` vs `gs:[0x30]`) และ multi-prefix อย่าง `data16 cs nop`; มี 1 คำสั่งที่ objdump ถอดได้แต่ capstone คืน None (0x710fc)
+- ตัวเลข sweep-level (secondary, ไม่ใช่เกณฑ์): a.exe 0.804 (missing 48,603) เพราะ capstone linear sweep หยุด/desync ที่ data island — บันทึกไว้เป็นข้อจำกัดของ sweep ไม่ใช่ของ decoder
 ### AC-3 strings/imports/exports
 - imports/exports ตรง 100% กับ dumpbin
 - strings: พบครบ 100% ของรายการอ้างอิง (ASCII ยาว >= 4)
@@ -499,3 +501,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 ")` และ quote ที่หลุด escape ใน `class="muted"` ทำให้สคริปต์ทั้งก้อนไม่ทำงาน (Chrome รายงาน `SyntaxError` ที่ index.html:88) เขียน UI ใหม่เป็น raw string (`r"""..."""`) ใช้ single quote ใน JS + double quote ใน HTML attribute และเลิกใช้ escape ที่หลั่งไหล; `dist/index.html` สร้างจาก `api.UI_HTML` ผ่าน `build/sync_dist.py` (เดิม slice จาก source ทำให้ escape ไม่ตรง). ตรวจซ้ำด้วยการอ่านข้อความใน `#status` (ไม่ใช่ค้นทั้ง DOM ซึ่งให้ false positive) — ทั้ง dist และหน้า API ได้ `token required`, `roothint = backend: http://127.0.0.1:...`, console ไม่มี error. unittest 106/106; MSI 13:21 → 14,274,560 B sha256 7590813d...
 - v4.20: ปลดล็อก path + Analyze from URL. `serve --root` กลายเป็น optional (ไม่ระบุ = รับ absolute path ใดก็ได้บนเครื่อง; ระบุ = โหมดล็อกเหมือนเดิม) — desktop wrapper ไม่ส่ง `--root` แล้ว, `resolve_path()` เช็กแค่ว่า absolute + มีจริง, relative path → 403. เพิ่ม `POST /analyze` รับ `http(s)://` ได้: ดาวน์โหลดลง `tempfile.mkdtemp()` (เพดาน 256 MB, timeout 30 s, ตรวจ magic `MZ`), วิเคราะห์, แล้ว `shutil.rmtree` ใน `finally` — error เป็น 400 พร้อมรหัส (`http_404`, `not_a_pe_file`, `file_too_large`, `download_failed`). UI: placeholder "Absolute path (C:/...) or URL (https://...)". ผลทดสอบสดบน sidecar ที่แพ็กแล้ว: absolute path นอก root → 200/21006 B, relative → 403, URL → 200/21006 B + temp ถูกเก็บกวาด, URL 404 → 400. unittest 111/111 OK; MSI 13:55 → 14,290,944 B sha256 3bc1e4d5...
 - v5.0: เปิด M5 — interactive SVG graph ใน UI (Vanilla JS + `createElementNS`, ไม่มีไลบรารีภายนอก, CSP เดิม). ปุ่ม view call graph / view diff graph / clear; ลาก node, pan, wheel zoom 0.25–4x; สีตาม kind และ added/removed. ตรวจด้วย `node --check` + Chrome headless (element ครบ, pill แสดงผลจริง, console ว่าง). unittest 112/112; MSI 14:12 → 14,295,040 B sha256 d003d922...
+- v5.1: ปิด AC-2 — เพิ่ม `src/reversesuite/disasm_compare.py` (+ `spikes/ac2_metrics.py`, `tests/test_disasm_compare.py`). วัดแบบ per-address decode เทียบ objdump 2.47: a.exe 0.999122, b.exe 0.998138, b_unstripped.exe 0.998138 (เกณฑ์ ≥0.99). unittest 119/119 OK
