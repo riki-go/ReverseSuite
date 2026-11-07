@@ -92,6 +92,21 @@ class XrefTests(unittest.TestCase):
         by_addr = {s.address: s for s in found}
         self.assertIn(0x167B, by_addr[0x5000].xrefs)
 
+    def test_xref_skipped_when_text_too_large(self):
+        data = frozen("b.exe")
+        found = strings.extract(data)
+        text = loader.text_bytes(data)
+        self.assertEqual(strings.xref_skip_reason(len(text), 100), "text_too_large_for_xref")
+        self.assertIsNone(strings.xref_skip_reason(len(text), len(text)))
+        self.assertEqual(strings.find_xrefs(text, found, max_bytes=100), {})
+        self.assertGreater(len(strings.find_xrefs(text, found)), 0)
+
+    def test_extract_with_xrefs_respects_limit(self):
+        data = frozen("b.exe")
+        limited = strings.extract_with_xrefs(data, max_bytes=1)
+        self.assertEqual(len(limited), 96)
+        self.assertTrue(all(not s.xrefs for s in limited))
+
     def test_parallel_matches_serial(self):
         data = frozen("a.exe")
         found = strings.extract(data)

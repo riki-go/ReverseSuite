@@ -26,6 +26,8 @@ IMAGE_SCN_MEM_EXECUTE = 0x20000000
 MAX_STRINGS = 200000
 XREF_TAIL = 15
 XREF_WORKERS_DEFAULT = 6
+MAX_XREF_TEXT_BYTES = 32 * 1024 * 1024
+XREF_SKIP_TEXT_TOO_LARGE = "text_too_large_for_xref"
 
 
 @dataclass(frozen=True)
@@ -170,11 +172,19 @@ def _xref_windows(text: bytes, base: int, spans, window: int = disasm.WINDOW) ->
         yield piece, base + start, spans
 
 
+def xref_skip_reason(text_bytes: int, max_bytes: Optional[int] = MAX_XREF_TEXT_BYTES) -> Optional[str]:
+    """Diagnostic code when the xref pass is skipped, else None."""
+    if max_bytes is not None and text_bytes > max_bytes:
+        return XREF_SKIP_TEXT_TOO_LARGE
+    return None
+
+
 def find_xrefs(text: bytes, strings: Sequence[ExtractedString],
                base: int = disasm.BASE_ADDRESS, workers: int = 1,
-               window: int = disasm.WINDOW) -> Dict[int, Tuple[int, ...]]:
+               window: int = disasm.WINDOW,
+               max_bytes: Optional[int] = MAX_XREF_TEXT_BYTES) -> Dict[int, Tuple[int, ...]]:
     """Map string address -> sorted code addresses that reference it."""
-    if not strings:
+    if not strings or xref_skip_reason(len(text), max_bytes):
         return {}
     spans = sorted((s.address, s.address + s.length * (2 if s.encoding == "utf16le" else 1), s.address)
                    for s in strings)
@@ -194,9 +204,10 @@ def find_xrefs(text: bytes, strings: Sequence[ExtractedString],
     del starts
     return {k: tuple(sorted(set(v))) for k, v in hits.items()}
 
-def extract_with_xrefs(data: bytes, min_length: int = MIN_LENGTH, workers: int = 1) -> List[ExtractedString]:
+def extract_with_xrefs(data: bytes, min_length: int = MIN_LENGTH, workers: int = 1,
+                       max_bytes: Optional[int] = MAX_XREF_TEXT_BYTES) -> List[ExtractedString]:
     strings = extract(data, min_length)
-    xrefs = find_xrefs(loader.text_bytes(data), strings, workers=workers)
+    xrefs = find_xrefs(loader.text_bytes(data), strings, workers=workers, max_bytes=max_bytes)
     if not xrefs:
         return strings
     return [ExtractedString(s.address, s.value, s.encoding, s.section, s.length, xrefs.get(s.address, ()))
