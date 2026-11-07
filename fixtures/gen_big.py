@@ -9,7 +9,7 @@ def main(count: int, out_path: str) -> None:
         f.write('int main(void) {' + chr(10))
         f.write('  int acc = 0;' + chr(10))
         f.write('  for (int i = 0; i < ' + str(count) + '; i++) acc += (int)(i & 1);' + chr(10))
-        f.write('  printf("%d\n", acc);' + chr(10))
+        f.write('  printf("%d\\n", acc);' + chr(10))
         f.write('  return 0;' + chr(10))
         f.write('}' + chr(10))
 
