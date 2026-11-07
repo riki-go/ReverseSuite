@@ -182,6 +182,19 @@
 - วัด recall และ precision แยกกัน
 - ผ่านเมื่อ: recall >= 0.98 และ precision >= 0.98 + รายงานรายชื่อที่ขาด/เกิน + ระบุข้อที่ถูกตัดเพราะอยู่นอกขอบเขต
 
+### AC-16 String extraction (M1b)
+- ขอบเขต: ASCII (`0x20`–`0x7E` + TAB) และ UTF-16LE แบบ ASCII-only, ขั้นต่ำ **4 ตัวอักษรนับหลัง trim ช่องว่างท้าย**; เฉพาะ section ที่ **ไม่ตั้ง** `IMAGE_SCN_MEM_EXECUTE` และมี raw data (เช่น `.rdata`, `.data`, `.idata`, `.rsrc`)
+- แต่ละรายการต้องมี: address (normalize ให้ `.text` = `0x1000`, สูตร `0x1000 + (rva − text_rva) + offset`), encoding (`ascii` / `utf16le`), section, length, และ xref (ถ้าพบ)
+- UTF-16LE ต้องเริ่มที่ offset คู่เทียบกับต้น section และเป็น maximal run
+- ground truth: binutils `strings.exe -n 4 -t x` บนไฟล์เดียวกัน กรองเฉพาะ section ที่ไม่ executable แล้ว map file offset → normalized VA ด้วยสูตรเดียวกัน
+- xref: decode `.text` (capstone, detail) เก็บ target จาก rip-relative memory operand, absolute memory operand (`base=0,index=0`) และ immediate `mov/push` แล้ว match เข้าช่วงไบต์ของสตริง
+- ผ่านเมื่อ:
+  - ASCII recall **≥ 0.98** และ precision **≥ 0.98** เทียบกับ `strings.exe`
+  - UTF-16LE: re-encode แล้วตรงกับไบต์จริง **100%** (round-trip)
+  - xref: สุ่มตรวจ **≥ 200** รายการ decode ยืนยัน target **ผิด 0**
+  - deterministic: รันซ้ำได้ผลเท่ากัน
+- ไม่อยู่ในขอบเขต (M1b): UTF-16 ที่มีอักขระ non-ASCII (ไทย/CJK), xref ผ่าน register/indirect (`mov rax,[rip+x]; call rax`), jump table, blob base64 ที่ไม่มีตัวคั่น
+- หมายเหตุ: สตริงยาว 3 ตัวหลัง trim (`CV:`, `int`, ` ??` บน a.exe) ถูกตัดตามนโยบาย "≥4 ตัวที่สื่อความหมาย" แม้ GNU `strings` จะปล่อยออกมา (นับเป็น miss ในการวัด)
 ### AC-10 (ย้ายไป milestone M-API — ไม่ใช่ M1)
 - ไม่มี token -> 401; Host ไม่ใช่ localhost -> 403; Origin แปลกปลอม -> 403; ไม่มี CORS wildcard
 
@@ -406,3 +419,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.3: ล็อก AC-7a จากผล S1 — 70 MB target, T เป็น proxy (ผลจริงชนะ), fallback 65 MB ที่ประกาศล่วงหน้าเมื่อ >45 s (gate ยัง 60 s/1 GB), gzip <= 20% ของ raw + raw ratio > 8x, streaming บังคับที่ slice >= 32 MB
 - v4.4: วัดจริงที่ 71.07 MB — AC-7a = parallel disasm 6 workers (19.481 s, per-process RSS 518 MB), AC-7b = E2E (167.014 s, gzip 8.93%); เพิ่มเหตุผล LNK1189/noinline, Defender exclusion, และข้อกำหนด buffer 2 MB ของ capstone
 - v4.5: ปิด AC-15 (commit c6e450d) — ผลวัดบน b.exe เทียบ COFF truth ของ b_unstripped.exe: **87 ฟังก์ชัน, matched 87, recall 1.000, precision 0.9886** (FP 1 ตัวที่ 0x3150 = บล็อกโค้ดจริง 50 ไบต์ที่ไม่มี symbol ใน COFF). **แก้ข้อผิดพลาดของเฉลย**: `spikes/coff_truth.py` เดิมตัด symbol ชื่อยาว (name field 4-zero + string table) และกรอง `__`/storage class ทำให้เฉลยเหลือ 23 → ตัวเลข baseline เดิม (recall 0.913 / precision 0.250) **เป็นโมฆะ** ให้ใช้ 87 เป็นฐาน. วิธีตรวจสอบไขว้: `objdump -t` นับ `(ty 20)` ใน sec 1 = 87. อัลกอริทึมที่ใช้: recursive descent จาก seed (export/entry/call_target/prologue/thunk) + terminator walk + thunk collapse (THUNK_MAX_BYTES = 16) + linear-decode fallback สำหรับ start ที่ linear sweep desync + overlap split ที่ seed แข็ง + gap pass สำหรับ thunk ที่ไม่มีใครเรียก. นิยาม FP: address ที่ discovery คืนแต่ไม่มีใน COFF symbol table ถือเป็น FP แม้ไบต์จะ decode เป็นโค้ดจริง. unittest 20/20 OK (6.4 s)
+- v4.6: เพิ่ม AC-16 (string extraction) และปิดงานที่ commit `2d15b34` — ASCII วัดเทียบ binutils `strings.exe` บน section เดียวกัน: b.exe 96/96 (recall 1.0000, precision 1.0000), a.exe 478/484 (recall 0.9876, precision 1.0000); UTF-16LE 467/467 round-trip ตรงเป๊ะ; xref b.exe 20 สตริง/21 refs, a.exe 134 สตริง/285 refs, สุ่มตรวจ 200 ผิด 0. ระบุข้อจำกัด: UTF-16 non-ASCII และ xref แบบ indirect ยังไม่อยู่ในขอบเขต
