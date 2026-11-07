@@ -527,3 +527,8 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - UI: ปุ่ม **export svg** (`XMLSerializer`) และ **export png** (SVG → Image → canvas → blob) โดยไม่เพิ่มไลบรารี
   - Ops: `.github/workflows/ci.yml` (windows runner: venv + tests + repro check + installer), `LICENSE` (MIT), version bump `0.1.0 → 0.2.0` (`ENGINE_BUILD_ID=m5-0.2.0`)
   - unittest 136/136 OK; MSI `ReverseSuite_0.2.0_x64_en-US.msi` 14,299,136 B sha256 abe7cfeda09e9aa7dbbad15e33063f3800bf05bb8aeb4aaab3825f6726496b65
+- v5.5: **indirect call resolution (bounded provenance)** — ใน `callgraph.build()` ติดตามค่า register แบบ window สั้น (≤2 คำสั่ง): `mov reg, [rip+IAT]` → import, `lea reg, [rip+func]` → direct; เฉพาะ `call reg` ที่พิสูจน์ได้ว่าโหลดจาก slot นั้นจริง (edge kind ใหม่ `indirect_resolved` พร้อมฟิลด์ `via` = ที่อยู่คำสั่งที่ให้ provenance)
+  - ผลบน b.exe: import 56 · direct 71 · **indirect_resolved 16** · tail 2 (edges 129 → 145), indirect 33 → **17**; ทุก 16 จุดตรวจแล้วว่า `via` decode เป็น `mov reg,[rip+…]` จริง (0 น่าสงสัย)
+  - a.exe: ไม่เปลี่ยน (0 resolved) — register calls ในไฟล์นี้มาจาก vtable ใน `.data` ไม่ใช่ IAT จึงยังอยู่นอกขอบเขต
+  - ไม่ได้นับ edge จาก provenance ที่เก่ากว่า 2 คำสั่ง เพราะทดลอง window 8 แล้วพบ false positive (เช่น `call r9` ที่ค่า r9 ถูก store ไม่ได้ถูกโหลด)
+  - unittest 137/137 OK; MSI `0.2.0` rebuild 15:16 → 14,299,136 B sha256 fd2723e67375880019a220fa09588359da59c54244185fc90eaf64140f72ed7a

@@ -41,15 +41,24 @@ class CallGraphTests(unittest.TestCase):
         self.assertIsNone(edge.callee)
         self.assertTrue(edge.name.endswith("!fflush"), edge.name)
         self.assertEqual(self.graph.import_calls, 56)
+        self.assertEqual(self.graph.resolved_indirect, 16)
 
     def test_tail_calls_target_nodes(self):
         tails = [e for e in self.graph.edges if e.kind == callgraph.KIND_TAIL]
         self.assertEqual(len(tails), 2)
         self.assertTrue(all(e.callee in self.graph.nodes for e in tails))
 
-    def test_indirect_calls_never_become_edges(self):
-        self.assertEqual(self.graph.indirect_calls, 33)
+    def test_unresolved_indirect_calls_never_become_edges(self):
+        self.assertEqual(self.graph.indirect_calls, 17)
         self.assertTrue(all(e.kind != callgraph.KIND_INDIRECT for e in self.graph.edges))
+
+    def test_indirect_call_resolved_through_iat_load(self):
+        edge = next(e for e in self.graph.edges if e.site == 0x10EF)
+        self.assertEqual(edge.kind, callgraph.KIND_INDIRECT_RESOLVED)
+        self.assertTrue(edge.name.endswith("!Sleep"), edge.name)
+        self.assertEqual(edge.via, 0x10E8)
+        self.assertEqual(self.graph.resolved_indirect,
+                         len([e for e in self.graph.edges if e.kind == callgraph.KIND_INDIRECT_RESOLVED]))
 
     def test_deterministic(self):
         again = callgraph.build(self.data)

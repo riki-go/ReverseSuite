@@ -119,7 +119,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(doc["status"], "ok")
         self.assertEqual(doc["target"]["size"], 21006)
         self.assertGreaterEqual(len(doc["findings"]), 300)
-        self.assertEqual(len(doc["graph"]["edges"]), 129)
+        self.assertEqual(len(doc["graph"]["edges"]), 145)
 
     def test_path_outside_root_is_403(self):
         status, _, _ = self.request("POST", "/analyze", token=self.token,

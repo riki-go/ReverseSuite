@@ -22,6 +22,7 @@ KIND_TAIL = "tail"
 KIND_THUNK = "thunk"
 KIND_INDIRECT = "indirect"
 KIND_IMPORT = "import"
+KIND_INDIRECT_RESOLVED = "indirect_resolved"
 
 MAX_GRAPH_TEXT_BYTES = functions.MAX_FUNCTION_TEXT_BYTES
 
@@ -43,10 +44,11 @@ class CallEdge:
     site: int
     kind: str
     name: Optional[str] = None
+    via: Optional[int] = None
 
     def as_dict(self) -> dict:
         return {"caller": self.caller, "callee": self.callee, "site": self.site,
-                "kind": self.kind, "name": self.name}
+                "kind": self.kind, "name": self.name, "via": self.via}
 
 
 @dataclass
@@ -56,6 +58,7 @@ class CallGraph:
     node_info: Tuple[NodeInfo, ...] = ()
     indirect_calls: int = 0
     import_calls: int = 0
+    resolved_indirect: int = 0
     unresolved_calls: int = 0
     tail_calls: int = 0
     thunk_calls: int = 0
@@ -74,6 +77,7 @@ class CallGraph:
             "edges": [e.as_dict() for e in self.edges],
             "indirect_calls": self.indirect_calls,
             "import_calls": self.import_calls,
+            "resolved_indirect": self.resolved_indirect,
             "unresolved_calls": self.unresolved_calls,
             "tail_calls": self.tail_calls,
             "thunk_calls": self.thunk_calls,
@@ -117,6 +121,20 @@ def _thunks(text: bytes, funcs: Sequence[functions.Function], base: int,
             out[fn.start] = ("import", None, iat[slot])
     return out
 
+PROVENANCE_WINDOW = 2
+PROVENANCE_REGS = {capstone.x86.X86_REG_RAX: "rax", capstone.x86.X86_REG_RBX: "rbx",
+                   capstone.x86.X86_REG_RCX: "rcx", capstone.x86.X86_REG_RDX: "rdx",
+                   capstone.x86.X86_REG_RSI: "rsi", capstone.x86.X86_REG_RDI: "rdi",
+                   capstone.x86.X86_REG_R8: "r8", capstone.x86.X86_REG_R9: "r9",
+                   capstone.x86.X86_REG_R10: "r10", capstone.x86.X86_REG_R11: "r11"}
+
+
+def _register_name(operand) -> Optional[str]:
+    if operand.type != capstone.x86.X86_OP_REG:
+        return None
+    return PROVENANCE_REGS.get(operand.reg)
+
+
 def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
           base: int = disasm.BASE_ADDRESS,
           max_bytes: Optional[int] = MAX_GRAPH_TEXT_BYTES) -> CallGraph:
@@ -156,7 +174,32 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
     unresolved = 0
     tails = 0
     thunked = 0
+    resolved_indirect = 0
+    provenance: dict = {}
+    step = 0
     for insn in disasm.iter_instructions(text, base, engine):
+        step += 1
+        # Track simple register provenance inside a short straight-line window.
+        if insn.mnemonic in ("lea", "mov") and len(insn.operands) == 2:
+            dst = _register_name(insn.operands[0])
+            if dst:
+                value = None
+                if insn.mnemonic == "lea":
+                    value = _mem_target(insn, insn.operands[1])
+                    if value is not None:
+                        value = ("func", value, None)
+                else:
+                    slot = _mem_target(insn, insn.operands[1])
+                    if slot is not None and slot in iat:
+                        value = ("import", None, iat[slot])
+                if value is None:
+                    provenance.pop(dst, None)
+                else:
+                    provenance[dst] = (value, step, insn.address)
+        elif insn.mnemonic in ("xor", "add", "sub", "and", "or", "pop", "movzx", "movsx") and insn.operands:
+            dst = _register_name(insn.operands[0])
+            if dst:
+                provenance.pop(dst, None)
         if insn.mnemonic not in ("call", "jmp") or not insn.operands:
             continue
         caller = caller_of(insn.address)
@@ -169,6 +212,19 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
             target = _mem_target(insn, op)
         if insn.mnemonic == "call":
             if target is None:
+                reg = _register_name(op)
+                entry = provenance.get(reg) if reg else None
+                if entry is not None and (step - entry[1]) <= PROVENANCE_WINDOW:
+                    kind, final, label = entry[0]
+                    via = entry[2]
+                    if kind == "import":
+                        edges.append(CallEdge(caller, None, insn.address, KIND_INDIRECT_RESOLVED, label, via))
+                        resolved_indirect += 1
+                        continue
+                    if kind == "func" and final in node_set:
+                        edges.append(CallEdge(caller, final, insn.address, KIND_INDIRECT_RESOLVED, None, via))
+                        resolved_indirect += 1
+                        continue
                 indirect += 1
                 continue
             if target in iat:
@@ -200,6 +256,7 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
     edges.sort(key=lambda e: (e.caller, e.site, e.callee or 0))
     return CallGraph(nodes=nodes, edges=tuple(edges), node_info=tuple(infos),
                      indirect_calls=indirect, import_calls=imports_hit,
+                     resolved_indirect=resolved_indirect,
                      unresolved_calls=unresolved, tail_calls=tails, thunk_calls=thunked)
 
 
