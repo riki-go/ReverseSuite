@@ -10,6 +10,7 @@ Security rules enforced here:
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import shutil
@@ -804,7 +805,11 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
             upload_id = new_upload_id()
             safe = "".join(ch for ch in (name_hint or "upload.bin") if ch.isalnum() or ch in "-_.")[:64]
             target = self._upload_dir() / ("%s-%s" % (upload_id, safe or "upload.bin"))
-            target.write_bytes(body)
+            try:
+                target.write_bytes(body)
+            except OSError:
+                self._purge_uploads()
+                raise
             self.uploads[upload_id] = (target, time.monotonic())
             return upload_id
 
@@ -1069,6 +1074,7 @@ def serve(root: Optional[Path] = None, token: Optional[str] = None, port: int = 
                                  make_handler(token, root, workers, rate_limit, allow_private_urls))
     upload_dir = tempfile.mkdtemp(prefix="reversesuite-up-")
     server.upload_dir = upload_dir
+    atexit.register(shutil.rmtree, upload_dir, True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, token, thread

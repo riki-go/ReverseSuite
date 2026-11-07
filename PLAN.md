@@ -1,4 +1,4 @@
-# ReverseSuite — PLAN v6.0 (Release 0.2.0, feature freeze)
+# ReverseSuite — PLAN v6.1 (Release 0.2.1, feature freeze)
 
 เกณฑ์ผูกกับ Definition of Done ของแต่ละ milestone ไม่ผูกกับจำนวนสัปดาห์
 
@@ -560,3 +560,9 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - **Force-directed layout** — แทนการวางวงกลมด้วย simulation 220 รอบ: แรงผลัก k²/d ระหว่างทุกคู่, แรงดึง d²/k ตาม edge, แรงดึงเข้า centre 2% ต่อรอบ, clamp ขอบ 24 px → แก้ hairball ของกราฟ 93 nodes/296 edges
   - unittest **141/141 OK**; MSI rebuild 23:52 → 14,303,232 B sha256 9d09f8aff32d93a7f3e69240b5aa923ce336ad06802fc8f1f04783e1d81acf9c
 - v6.0.2 (hotfix ตาม UAT): `/diff` และ `/report` ใช้ `_acquire()` ตัวเดียวกับ `/analyze` แล้ว — รับได้ทั้ง absolute path (ทุกไดรฟ์เมื่อไม่ได้ระบุ `--root`), URL (ดาวน์โหลดลง temp แล้วลบทิ้งหลังอ่านไบต์), upload id หรือผสมกัน (เช่น ซ้ายเป็น URL ขวาเป็น path). ข้อผิดพลาดยังแยก 403 `path_not_allowed` (โหมดล็อก) กับ 400 (`url_host_not_allowed`, `http_404`, `not_a_pe_file`, `upload_not_found`). unittest **145/145 OK**; ยืนยันบน sidecar ที่แพ็กแล้ว: diff ด้วย URL 2 ฝั่ง → 200 (added 1500), report ด้วย URL + path → 200 (10,331 B). MSI 00:04 → 14,303,232 B sha256 ae97403c6ec1d96f4433e232ebae520dacaa88c5281448b719fa154a75a0800f
+- v6.1 (Release 0.2.1 — housekeeping):
+  - **ล้าง history**: `git filter-repo --path projects/reversesuite/tools --invert-paths` + `git reflog expire --expire=now --all` + `git gc --prune=now --aggressive` → `.git` **583,948,002 B (13,663 ไฟล์) → 7,235,641 B (37 ไฟล์)**, `git fsck --full --strict` ผ่าน, 59 commits, tag v0.2.0 ยังอยู่ (hash เปลี่ยนทั้งหมด)
+  - **Temp cleanup**: `/upload` เขียนไฟล์ใน `mkdtemp` แล้วลงทะเบียน `atexit.register(shutil.rmtree, upload_dir, True)`; ถ้าเขียนล้มเหลวจะ purge ทันที; ยังมี TTL 15 นาทีต่อ entry
+  - **.gitignore**: ยืนยันว่าครบ `tools/`, `.venv/`, `node_modules/`, `__pycache__/`, `src-tauri/target/`, `fixtures/out/`, `fixtures/audit/` + เพิ่ม `.pytest_cache/`, `.mypy_cache/`
+  - **Version 0.2.1**: package.json, tauri.conf.json, Cargo.toml, `ENGINE_BUILD_ID=m5-0.2.1`; MSI `ReverseSuite_0.2.1_x64_en-US.msi` 14,303,232 B sha256 94777c49aa62b8cf15e07a6cf830d3663d0aa18e29b9c5b0b2be5bae8fad0d87
+  - unittest **145/145 OK**
