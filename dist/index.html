@@ -23,7 +23,7 @@ th{background:#f7f7f7}.muted{color:#666}
 </div>
 <h2>Analyze</h2>
 <div class="row">
-  <textarea id="path" rows="1" placeholder="C:/Users/you/sample.exe (must be inside the allowed root)"></textarea>
+  <textarea id="path" rows="1" placeholder="Absolute path (C:/...) or URL (https://...)"></textarea>
   <button id="run">analyze</button>
 </div>
 <p class="muted" id="roothint"></p>
@@ -67,7 +67,7 @@ th{background:#f7f7f7}.muted{color:#666}
     paintStatus();
   };
 
-  $("roothint").textContent = "backend: " + location.origin;
+  $("roothint").textContent = "backend: " + location.origin + " · accepts any absolute path or http(s) URL";
 
   function call(route, payload) {
     return fetch(route, {

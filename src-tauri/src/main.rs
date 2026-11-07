@@ -83,12 +83,11 @@ fn main() {
                 Err(err) => log(&format!("window build failed (headless mode): {}", err)),
             }
 
-            let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
-            log(&format!("spawning sidecar with root {}", home));
+            log("spawning sidecar (unrestricted local paths + URL fetch)");
             let sidecar = app
                 .shell()
                 .sidecar("reversesuite-backend")?
-                .args(["serve", "--root", &home, "--port", "0", "--parent-pid",
+                .args(["serve", "--port", "0", "--parent-pid",
                        &std::process::id().to_string(), "--token", &state_token]);
             let (mut rx, child) = sidecar.spawn()?;
             log(&format!("sidecar pid {}", child.pid()));

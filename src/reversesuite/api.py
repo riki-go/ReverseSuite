@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
+import urllib.error
+import urllib.request
 import secrets
 import sys
 import threading
@@ -24,6 +28,9 @@ from urllib.parse import urlsplit
 from . import callgraph, diff as diff_mod, functions, loader, report as report_mod, rules, schema, strings
 
 MAX_BODY = 64 * 1024
+URL_MAX_BYTES = 256 * 1024 * 1024
+URL_TIMEOUT = 30
+URL_HEADERS = {"User-Agent": "ReverseSuite/0.1 (+http://127.0.0.1)"}
 
 
 def watch_parent(parent_pid: int) -> None:
@@ -93,16 +100,74 @@ def _attachment_name(path: str, fmt: str) -> str:
     return "reversesuite-%s.%s" % (safe, "html" if fmt == "html" else "md")
 
 
-def resolve_in_root(root: Path, raw: str) -> Optional[Path]:
+class FetchError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def resolve_path(root: Optional[Path], raw: str):
+    """Validate a local path. root=None means any absolute path is allowed."""
+    if not raw or len(raw) > 4096:
+        return None, "path_not_found"
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        return None, "path_not_allowed"
     try:
-        candidate = Path(raw).resolve(strict=False)
+        candidate = candidate.resolve(strict=False)
     except Exception:
-        return None
+        return None, "path_not_allowed"
+    if root is not None:
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            return None, "path_not_allowed"
+    return candidate, None
+
+
+def is_url(raw: str) -> bool:
+    return raw.lower().startswith(("http://", "https://"))
+
+
+def download_to_temp(url: str, timeout: int = URL_TIMEOUT, max_bytes: int = URL_MAX_BYTES):
+    """Fetch a remote binary into a private temp dir. Returns (path, tempdir)."""
+    if len(url) > 2048:
+        raise FetchError("url_too_long")
+    tempdir = tempfile.mkdtemp(prefix="reversesuite-dl-")
     try:
-        candidate.relative_to(root)
-    except ValueError:
-        return None
-    return candidate
+        request = urllib.request.Request(url, headers=URL_HEADERS)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            length = response.headers.get("Content-Length")
+            if length is not None and int(length) > max_bytes:
+                raise FetchError("file_too_large")
+            chunks = []
+            total = 0
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise FetchError("file_too_large")
+                chunks.append(chunk)
+        data = b"".join(chunks)
+        if len(data) < 2 or data[:2] != b"MZ":
+            raise FetchError("not_a_pe_file")
+        target = Path(tempdir) / "download.bin"
+        target.write_bytes(data)
+        return target, tempdir
+    except FetchError:
+        shutil.rmtree(tempdir, ignore_errors=True)
+        raise
+    except urllib.error.HTTPError as exc:
+        shutil.rmtree(tempdir, ignore_errors=True)
+        raise FetchError("http_%d" % exc.code)
+    except urllib.error.URLError as exc:
+        shutil.rmtree(tempdir, ignore_errors=True)
+        raise FetchError("download_failed: %s" % (exc.reason,))
+    except Exception as exc:
+        shutil.rmtree(tempdir, ignore_errors=True)
+        raise FetchError("download_failed: %s" % (exc.__class__.__name__,))
 
 
 UI_HTML = r"""<!DOCTYPE html>
@@ -130,7 +195,7 @@ th{background:#f7f7f7}.muted{color:#666}
 </div>
 <h2>Analyze</h2>
 <div class="row">
-  <textarea id="path" rows="1" placeholder="C:/Users/you/sample.exe (must be inside the allowed root)"></textarea>
+  <textarea id="path" rows="1" placeholder="Absolute path (C:/...) or URL (https://...)"></textarea>
   <button id="run">analyze</button>
 </div>
 <p class="muted" id="roothint"></p>
@@ -174,7 +239,7 @@ th{background:#f7f7f7}.muted{color:#666}
     paintStatus();
   };
 
-  $("roothint").textContent = "backend: " + location.origin;
+  $("roothint").textContent = "backend: " + location.origin + " · accepts any absolute path or http(s) URL";
 
   function call(route, payload) {
     return fetch(route, {
@@ -269,7 +334,7 @@ th{background:#f7f7f7}.muted{color:#666}
 })();
 </script></body></html>"""
 
-def make_handler(token: str, root: Path, workers: int = 1):
+def make_handler(token: str, root: Optional[Path], workers: int = 1):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ReverseSuite/0.3"
         protocol_version = "HTTP/1.1"
@@ -373,11 +438,46 @@ def make_handler(token: str, root: Path, workers: int = 1):
             except Exception:
                 self._send(400, {"error": "bad_json"})
                 return
-            if self.path.split("?")[0] == "/diff":
-                left = resolve_in_root(root, str(payload.get("left_path", "")))
-                right = resolve_in_root(root, str(payload.get("right_path", "")))
+            route = self.path.split("?")[0]
+            if route == "/analyze":
+                raw_path = str(payload.get("path", "")).strip()
+                tempdir = None
+                try:
+                    if is_url(raw_path):
+                        try:
+                            target, tempdir = download_to_temp(raw_path)
+                        except FetchError as exc:
+                            self._send(400, {"error": exc.code})
+                            return
+                    else:
+                        target, error = resolve_path(root, raw_path)
+                        if error == "path_not_allowed":
+                            self._send(403, {"error": error})
+                            return
+                        if target is None or not target.is_file():
+                            self._send(400, {"error": "path_not_found"})
+                            return
+                    try:
+                        doc = analyze_bytes(target.read_bytes(), int(payload.get("workers", workers)))
+                    except Exception as exc:
+                        self._send(400, {"error": "analysis_failed", "detail": exc.__class__.__name__})
+                        return
+                    doc["source"] = raw_path
+                    self._send(200, doc)
+                finally:
+                    if tempdir:
+                        shutil.rmtree(tempdir, ignore_errors=True)
+                return
+            if route in ("/diff", "/report"):
+                fmt = str(payload.get("format", "html")).lower()
+                if route == "/report" and fmt not in ("html", "md", "markdown"):
+                    self._send(400, {"error": "bad_format"})
+                    return
+                left, left_err = resolve_path(root, str(payload.get("left_path", "")).strip())
+                right, right_err = resolve_path(root, str(payload.get("right_path", "")).strip())
                 if left is None or right is None:
-                    self._send(403, {"error": "path_not_allowed"})
+                    code = 403 if "path_not_allowed" in (left_err, right_err) else 400
+                    self._send(code, {"error": left_err or right_err})
                     return
                 if not left.is_file() or not right.is_file():
                     self._send(400, {"error": "path_not_found"})
@@ -389,32 +489,13 @@ def make_handler(token: str, root: Path, workers: int = 1):
                 except Exception as exc:
                     self._send(500, {"error": "diff_failed", "detail": exc.__class__.__name__})
                     return
-                doc = result.as_dict()
-                doc["left"] = str(left)
-                doc["right"] = str(right)
-                self._send(200, doc)
-                return
-            if self.path.split("?")[0] == "/report":
-                fmt = str(payload.get("format", "html")).lower()
-                if fmt not in ("html", "md", "markdown"):
-                    self._send(400, {"error": "bad_format"})
+                if route == "/diff":
+                    doc = result.as_dict()
+                    doc["left"] = str(left)
+                    doc["right"] = str(right)
+                    self._send(200, doc)
                     return
-                left = resolve_in_root(root, str(payload.get("left_path", "")))
-                right = resolve_in_root(root, str(payload.get("right_path", "")))
-                if left is None or right is None:
-                    self._send(403, {"error": "path_not_allowed"})
-                    return
-                if not left.is_file() or not right.is_file():
-                    self._send(400, {"error": "path_not_found"})
-                    return
-                try:
-                    result = diff_mod.diff_graphs(callgraph.build(left.read_bytes()).as_dict(),
-                                                  callgraph.build(right.read_bytes()).as_dict(),
-                                                  ignore_thunks=bool(payload.get("ignore_thunks", False)))
-                    document = report_mod.render(result, left.name, right.name, fmt)
-                except Exception as exc:
-                    self._send(500, {"error": "report_failed", "detail": exc.__class__.__name__})
-                    return
+                document = report_mod.render(result, left.name, right.name, fmt)
                 body = document.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8" if fmt == "html"
@@ -426,24 +507,12 @@ def make_handler(token: str, root: Path, workers: int = 1):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if self.path.split("?")[0] != "/analyze":
-                self._send(404, {"error": "not_found"})
-                return
-            target = resolve_in_root(root, str(payload.get("path", "")))
-            if target is None or not target.is_file():
-                self._send(403, {"error": "path_not_allowed"})
-                return
-            try:
-                doc = analyze_bytes(target.read_bytes(), int(payload.get("workers", workers)))
-            except Exception as exc:
-                self._send(500, {"error": "analysis_failed", "detail": exc.__class__.__name__})
-                return
-            self._send(200, doc)
+            self._send(404, {"error": "not_found"})
 
     return Handler
 
 
-def serve(root: Path, token: Optional[str] = None, port: int = 0,
+def serve(root: Optional[Path] = None, token: Optional[str] = None, port: int = 0,
           workers: int = 1) -> Tuple[ThreadingHTTPServer, str, threading.Thread]:
     token = token or new_token()
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(token, root, workers))

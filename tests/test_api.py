@@ -1,5 +1,6 @@
 """Local API tests (AC-10): token, Host, Origin, path allowlist, no CORS wildcard."""
 import http.client
+import tempfile
 import json
 import unittest
 from pathlib import Path
@@ -13,12 +14,38 @@ class ApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.server, cls.token, cls.thread = api.serve(ROOT)
+        cls.open_server, cls.open_token, cls.open_thread = api.serve(None)
         cls.port = cls.server.server_address[1]
 
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
         cls.server.server_close()
+        cls.open_server.shutdown()
+        cls.open_server.server_close()
+
+    def open_request(self, method, path, body=None, token=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.open_server.server_address[1], timeout=60)
+        headers = {}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        conn.putrequest(method, path, skip_host=True)
+        conn.putheader("Host", "127.0.0.1:%d" % self.open_server.server_address[1])
+        for key, value in headers.items():
+            conn.putheader(key, value)
+        if data is not None:
+            conn.putheader("Content-Length", str(len(data)))
+        conn.endheaders()
+        if data is not None:
+            conn.send(data)
+        response = conn.getresponse()
+        text = response.read().decode("utf-8", errors="replace")
+        conn.close()
+        return response.status, text, dict(response.getheaders())
 
     def request(self, method, path, body=None, token=None, host=None, origin=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
@@ -173,6 +200,104 @@ class ApiTests(unittest.TestCase):
     def test_diff_requires_token(self):
         status, _, _ = self.request("POST", "/diff", body={"left_path": "x", "right_path": "y"})
         self.assertEqual(status, 401)
+
+    def test_unrestricted_server_accepts_absolute_path_outside_root(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            copy_path = str(Path(tmp) / "b.exe")
+            Path(copy_path).write_bytes((ROOT / "b.exe").read_bytes())
+            status, text, _ = self.open_request("POST", "/analyze", token=self.open_token,
+                                                body={"path": copy_path})
+            self.assertEqual(status, 200, text[:300])
+            self.assertEqual(json.loads(text)["target"]["size"], 21006)
+
+    def test_locked_server_still_rejects_outside_root(self):
+        status, _, _ = self.request("POST", "/analyze", token=self.token,
+                                    body={"path": "C:/Windows/System32/notepad.exe"})
+        self.assertEqual(status, 403)
+
+    def test_analyze_from_url(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        payload = (ROOT / "b.exe").read_bytes()
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = "http://127.0.0.1:%d/b.exe" % srv.server_address[1]
+            before = set(Path(tempfile.gettempdir()).glob("reversesuite-dl-*"))
+            status, text, _ = self.open_request("POST", "/analyze", token=self.open_token,
+                                                body={"path": url})
+            after = set(Path(tempfile.gettempdir()).glob("reversesuite-dl-*"))
+            self.assertEqual(status, 200, text[:300])
+            doc = json.loads(text)
+            self.assertEqual(doc["target"]["size"], 21006)
+            self.assertEqual(doc["source"], url)
+            self.assertEqual(before, after)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_url_404_is_400(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                self.send_error(404)
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = "http://127.0.0.1:%d/missing.exe" % srv.server_address[1]
+            status, text, _ = self.open_request("POST", "/analyze", token=self.open_token,
+                                                body={"path": url})
+            self.assertEqual(status, 400)
+            self.assertIn("http_404", text)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_url_non_pe_is_400(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = b"not a pe file at all"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = "http://127.0.0.1:%d/text.txt" % srv.server_address[1]
+            status, text, _ = self.open_request("POST", "/analyze", token=self.open_token,
+                                                body={"path": url})
+            self.assertEqual(status, 400)
+            self.assertIn("not_a_pe_file", text)
+        finally:
+            srv.shutdown()
+            srv.server_close()
 
     def test_favicon_is_served_without_token(self):
         status, text, headers = self.request("GET", "/favicon.ico")

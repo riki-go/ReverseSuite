@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--workers", type=int, default=6, help="worker processes for the xref pass")
     st.add_argument("--no-xref", action="store_true", help="skip string xref resolution")
     sv = sub.add_parser("serve", help="start the local API/UI server")
-    sv.add_argument("--root", required=True, help="allowlisted directory")
+    sv.add_argument("--root", default="", help="optional allowlisted directory (omit to allow any absolute path)")
     sv.add_argument("--port", type=int, default=0)
     sv.add_argument("--workers", type=int, default=1)
     sv.add_argument("--token", default="", help="fixed token (default: random per session)")
@@ -73,10 +73,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "serve":
-        root = __import__("pathlib").Path(args.root).resolve()
-        if not root.is_dir():
-            print(f"root is not a directory: {root}", file=sys.stderr)
-            return EXIT_USAGE
+        root = None
+        if args.root:
+            root = __import__("pathlib").Path(args.root).resolve()
+            if not root.is_dir():
+                print(f"root is not a directory: {root}", file=sys.stderr)
+                return EXIT_USAGE
         try:
             server, token, thread = api_mod.serve(root, args.token or None, args.port, args.workers)
         except OSError as exc:
