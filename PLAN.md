@@ -220,6 +220,13 @@
 - ผลวัด: b.exe **45/45** entries ตรง objdump (IAT แรก 0xb278), a.exe **92/92**; call graph b.exe ได้ import 56 edges (54 site ตรงกับที่ objdump resolve เป็นชื่อ), indirect 35 → 33, edges 127 → 129
 - ข้อค้นพบ: a.exe มี 1,188 stubs ที่เป็น `jmp <addr>` (incremental-link thunks) **ไม่ใช่ IAT stub** จึงถูกต้องที่จะคงเป็น `thunk` 4,368 edges — สมมติฐานเดิมที่ว่าเป็น ILT stub ไม่ถูกต้อง
 - ไม่อยู่ในขอบเขต: delay-load import, bound import, ordinal-only ที่ไม่มีชื่อ, vtable / function pointer resolution
+### AC-20 Report layer (M2 slice 4)
+- `report.render(result, left, right, fmt)` เรนเดอร์ผล diff เป็น `md` หรือ `html` แบบ standalone (ไม่มี asset/JS ภายนอก)
+- CLI: `reversesuite report <a> <b> [--format md|html] [--out PATH] [--ignore-thunks]` — รับได้ทั้ง JSON graph และ PE
+- ค่าทุกตัวที่มาจากไบแนรี (ชื่อไฟล์, ค่า address) ถูก escape ก่อนใส่เอกสาร (PLAN T7); แต่ละหมวดตัดที่ 50 แถวแล้วระบุ "... and N more"
+- ผ่านเมื่อ: output **deterministic** (input เดิม → ไบต์เดิม), HTML ไม่มี tag ดิบจากข้อมูลที่ escape (ทดสอบด้วย `<script>alert(1)</script>`), ตัวเลขในรายงานตรงกับ JSON diff ทุกช่อง, self-diff ต้องขึ้น "No changes detected", ไฟล์ใหญ่สุดไม่เกิน ~40 KB ในเคส b vs a
+- ผลวัด: b vs a (`--ignore-thunks`) → HTML **10,323 bytes**, deterministic, escape ผ่าน, unittest 83/83 OK
+- ยังไม่ทำ: PDF, กราฟภาพ (graphviz), การแนบ finding/string ในรายงาน (ปัจจุบันรายงานเฉพาะ node/edge ของ diff)
 ### AC-10 (ย้ายไป milestone M-API — ไม่ใช่ M1)
 - ไม่มี token -> 401; Host ไม่ใช่ localhost -> 403; Origin แปลกปลอม -> 403; ไม่มี CORS wildcard
 
@@ -450,3 +457,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.9: เปิด M2 slice 1 — call graph (`src/reversesuite/callgraph.py`) + rule `pe.callgraph.edge` + subcommand `reversesuite calls` และรวม edge เข้า `analyze` (b.exe: findings 199 → 326, edges 127). ผล AC-17: recall 1.0000 / precision 1.0000 เทียบ objdump บน b_unstripped, indirect 35 ถูกนับแยกไม่ปนเป็น edge, tail 2/2 ชี้ node จริง, unittest 62/62 OK
 - v4.10: M2 slice 2 — diff engine (`src/reversesuite/diff.py`), `node_info` (size + body sha256) ใน graph JSON, subcommand `reversesuite diff <a> <b> [--json] [--ignore-thunks]` รับได้ทั้ง JSON และ PE. ผล AC-18: self-diff 0 change (unchanged 127/127), shifted graph moved 88/88 + edges unchanged 127/127, b vs a +1503/-84/~4 nodes และ edges +5149/-127 (ignore-thunks เหลือ +781), unittest 70/70 OK
 - v4.11: M2 slice 3 — import table + IAT resolution (`loader.imports`, edge kind `import`). b.exe 45/45 import entries ตรง objdump, a.exe 92/92; call graph b.exe direct 71 / import 56 / tail 2 / indirect 33 (site recall 1.0000, precision 0.9843), edges 129. พบว่า a.exe ใช้ incremental-link thunks (`jmp <addr>`) 1,188 ตัว ไม่ใช่ IAT stub จึงคง thunk 4,368 edges ตามจริง. unittest 75/75 OK
+- v4.12: M2 slice 4 — report layer (`src/reversesuite/report.py`) + subcommand `reversesuite report <a> <b> --format md|html --out ... --ignore-thunks`. HTML standalone escape ทุกค่าจากไบแนรี, ตัด 50 แถว/หมวด, deterministic; ตัวอย่าง b vs a (ignore-thunks) = 10,323 bytes. unittest 83/83 OK

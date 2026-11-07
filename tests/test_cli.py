@@ -3,6 +3,7 @@ import io
 import json
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path
 
 from reversesuite import cli
 
@@ -73,6 +74,24 @@ class CliTests(unittest.TestCase):
         doc = json.loads(out)
         self.assertEqual(doc["summary"]["edges"]["unchanged"], 129)
         self.assertEqual(doc["summary"]["nodes"]["added"], 0)
+
+    def test_report_to_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = str((Path(tmp) / "report.md"))
+            code, out, err = run(["report", "fixtures/frozen/b.exe", "fixtures/frozen/b.exe",
+                                  "--out", out_path])
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            self.assertEqual(payload["format"], "md")
+            body = Path(out_path).read_text(encoding="utf-8")
+            self.assertIn("No changes detected", body)
+
+    def test_report_html_on_stdout(self):
+        code, out, err = run(["report", "fixtures/frozen/b.exe", "fixtures/frozen/b.exe",
+                              "--format", "html"])
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith("<!DOCTYPE html>"))
 
     def test_missing_subcommand_is_usage_error(self):
         code, out, err = run([])

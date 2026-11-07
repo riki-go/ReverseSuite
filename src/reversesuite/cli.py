@@ -13,6 +13,7 @@ import shutil
 from . import functions as functions_mod
 from . import callgraph as callgraph_mod
 from . import diff as diff_mod
+from . import report as report_mod
 from . import strings as strings_mod
 from . import cache as cache_mod, disasm, loader, schema
 
@@ -43,6 +44,12 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--min-length", type=int, default=strings_mod.MIN_LENGTH)
     st.add_argument("--workers", type=int, default=6, help="worker processes for the xref pass")
     st.add_argument("--no-xref", action="store_true", help="skip string xref resolution")
+    rp = sub.add_parser("report", help="render a diff report as Markdown or HTML")
+    rp.add_argument("left")
+    rp.add_argument("right")
+    rp.add_argument("--format", choices=("md", "html"), default="md")
+    rp.add_argument("--out", default="", help="write to this path instead of stdout")
+    rp.add_argument("--ignore-thunks", action="store_true")
     df = sub.add_parser("diff", help="diff two call graphs (JSON docs or PE files)")
     df.add_argument("left")
     df.add_argument("right")
@@ -58,6 +65,34 @@ def main(argv: list[str] | None = None) -> int:
     fn.add_argument("--max-functions", type=int, default=200000)
     args = parser.parse_args(argv)
 
+    if args.cmd == "report":
+        def load_doc(path):
+            if path.lower().endswith(".json"):
+                with open(path, "r", encoding="utf-8") as fh:
+                    return json.load(fh)
+            with open(path, "rb") as fh:
+                return callgraph_mod.build(fh.read()).as_dict()
+
+        try:
+            left = load_doc(args.left)
+            right = load_doc(args.right)
+        except Exception as exc:
+            print(f"cannot load inputs: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        result = diff_mod.diff_graphs(left, right, ignore_thunks=args.ignore_thunks)
+        document = report_mod.render(result, args.left, args.right, args.format)
+        if args.out:
+            try:
+                with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(document)
+            except OSError as exc:
+                print(f"cannot write report: {exc}", file=sys.stderr)
+                return EXIT_USAGE
+            sys.stdout.write(json.dumps({"out": args.out, "format": args.format,
+                                         "bytes": len(document.encode("utf-8"))}) + chr(10))
+        else:
+            sys.stdout.write(document)
+        return EXIT_OK
     if args.cmd == "diff":
         def load_doc(path):
             if path.lower().endswith(".json"):
