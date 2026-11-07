@@ -5,6 +5,11 @@ Set-Location $PSScriptRoot
 $python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) { throw "run from the project root with a prepared .venv" }
 
+Write-Host "== 0/3 syncing dist/index.html from the API UI =="
+& $python -c "import sys; sys.path.insert(0, 'src'); from reversesuite import api; open('dist/index.html', 'w', encoding='utf-8', newline='
+& $python "build\sync_dist.py"
+if ($LASTEXITCODE -ne 0) { throw "dist sync failed" }
+
 Write-Host "== 1/3 building Python sidecar =="
 & $python -m PyInstaller --onefile --name reversesuite-backend `
     --distpath "src-tauri\binaries\tmp" --workpath "build\pyi" --specpath "build" `

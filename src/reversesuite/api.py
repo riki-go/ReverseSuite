@@ -105,156 +105,166 @@ def resolve_in_root(root: Path, raw: str) -> Optional[Path]:
     return candidate
 
 
-UI_HTML = """<!DOCTYPE html>
+UI_HTML = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>ReverseSuite</title>
 <style>
 body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:72rem;color:#111}
 h1{margin:0 0 .3rem}h2{margin:1.6rem 0 .4rem;font-size:1.05rem}
-input,button{font:inherit;padding:.3rem .5rem}
-input[type=text],input[type=password]{min-width:22rem}
-textarea{width:32rem;min-height:2.4rem;font-family:ui-monospace,monospace;font-size:12px;resize:vertical}
+input,button,textarea{font:inherit;padding:.3rem .5rem}
+input[type=password]{min-width:26rem}
+textarea{width:34rem;min-height:2.2rem;font-family:ui-monospace,monospace;font-size:12px;resize:vertical;white-space:pre}
 pre{background:#f4f4f4;padding:1rem;overflow:auto;max-height:22rem;white-space:pre-wrap}
 table{border-collapse:collapse;margin:.5rem 0;width:100%}
 td,th{border:1px solid #ddd;padding:.2rem .5rem;text-align:left;font-family:ui-monospace,monospace;font-size:12px}
 th{background:#f7f7f7}.muted{color:#666}
-.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.4rem 0}
+.row{display:flex;gap:.5rem;align-items:flex-start;flex-wrap:wrap;margin:.4rem 0}
 .pill{display:inline-block;padding:.1rem .55rem;border-radius:999px;font-size:12px;font-weight:600}
 .ok{background:#d7f5dd;color:#12602a}.bad{background:#ffe0e0;color:#8a1c1c}
 </style></head><body>
 <h1>ReverseSuite <span id="status" class="pill bad">checking...</span></h1>
 <p class="muted">Static PE analysis: functions, strings, call graph, diff and reports.</p>
-<div class="row" id="tokenrow"><input id="token" type="password" placeholder="session token" size="48">
-<button id="save">use token</button>
-<span class="muted">desktop app fills this automatically; otherwise copy <code>token</code> from <code>%LOCALAPPDATA%\\ReverseSuite\\session.json</code></span></div>
-
+<div class="row" id="tokenrow">
+  <input id="token" type="password" placeholder="session token">
+  <button id="save">use token</button>
+  <span class="muted">desktop app fills this automatically; otherwise paste the token from %LOCALAPPDATA%/ReverseSuite/session.json</span>
+</div>
 <h2>Analyze</h2>
-<div class="row"><textarea id="path" rows="1" placeholder="C:/Users/you/sample.exe (must be inside the allowed root)"></textarea>
-<button id="run">analyze</button></div>
+<div class="row">
+  <textarea id="path" rows="1" placeholder="C:/Users/you/sample.exe (must be inside the allowed root)"></textarea>
+  <button id="run">analyze</button>
+</div>
 <p class="muted" id="roothint"></p>
 <pre id="out">ready</pre>
-
 <h2>Diff &amp; Report</h2>
-<div class="row"><textarea id="left" rows="1" placeholder="left binary path"></textarea>
-<textarea id="right" rows="1" placeholder="right binary path"></textarea>
-<label><input id="thunks" type="checkbox"> ignore thunks</label></div>
-<div class="row"><button id="diff">run diff</button>
-<button id="report">download report</button><span id="diffstate" class="muted"></span></div>
+<div class="row">
+  <textarea id="left" rows="1" placeholder="left binary path"></textarea>
+  <textarea id="right" rows="1" placeholder="right binary path"></textarea>
+  <label><input id="thunks" type="checkbox"> ignore thunks</label>
+</div>
+<div class="row">
+  <button id="diff">run diff</button>
+  <button id="report">download report</button>
+  <span id="diffstate" class="muted"></span>
+</div>
 <div id="summary"></div>
 <div id="tables"></div>
-
 <script>
 (function () {
-  const $ = (id) => document.getElementById(id);
-  const token = () => (window.__rs_token || sessionStorage.getItem("rs-token") || "");
-  const esc = (v) => String(v).replace(/[&<>"\']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  var $ = function (id) { return document.getElementById(id); };
+  var token = function () {
+    return window.__rs_token || sessionStorage.getItem("rs-token") || "";
+  };
+  var esc = function (value) {
+    return String(value).replace(/[&<>"]/g, function (ch) {
+      return ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&quot;";
+    });
+  };
 
   function paintStatus() {
-    const badge = $("status");
-    const have = token().length > 0;
+    var badge = $("status");
+    var have = token().length > 0;
     badge.textContent = have ? "connected" : "token required";
     badge.className = "pill " + (have ? "ok" : "bad");
     $("tokenrow").style.display = have ? "none" : "flex";
-    $("token").value = have ? "" : $("token").value;
   }
   paintStatus();
 
-  $("save").onclick = () => {
+  $("save").onclick = function () {
     sessionStorage.setItem("rs-token", $("token").value.trim());
     paintStatus();
   };
 
-  fetch("/healthz").then((r) => r.json()).then(() => {
-    $("roothint").textContent = "backend: " + location.origin + " · allowed root: the folder passed with --root (desktop app uses %USERPROFILE%)";
-  }).catch(() => {});
+  $("roothint").textContent = "backend: " + location.origin;
 
-  async function call(route, payload) {
-    const res = await fetch(route, {
+  function call(route, payload) {
+    return fetch(route, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token() },
       body: JSON.stringify(payload)
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        if (res.status === 401) throw new Error("unauthorised: token missing or wrong (open the desktop app, or paste the token from session.json)");
+        if (res.status === 403) throw new Error("path rejected: it must be inside the allowed root folder");
+        if (res.status === 400) throw new Error("bad request: " + text.slice(0, 200));
+        if (!res.ok) throw new Error(res.status + " " + text.slice(0, 200));
+        return text;
+      });
     });
-    const text = await res.text();
-    if (res.status === 401) throw new Error("unauthorised: token missing or wrong (open the desktop app, or paste the token from session.json)");
-    if (res.status === 403) throw new Error("path rejected: it must be inside the allowed root folder");
-    if (res.status === 400) throw new Error("bad request: " + text.slice(0, 200));
-    if (!res.ok) throw new Error(res.status + " " + text.slice(0, 200));
-    return text;
   }
 
-  $("run").onclick = async () => {
+  $("run").onclick = function () {
     $("out").textContent = "working...";
-    try {
-      const doc = JSON.parse(await call("/analyze", { path: $("path").value.trim() }));
-      $("out").textContent = [
-        "status: " + doc.status + "   size: " + doc.target.size + " bytes",
-        "findings: " + doc.findings.length,
-        "functions: " + doc.graph.nodes.length,
-        "edges: " + doc.graph.edges.length + " (imports " + (doc.graph.import_calls || 0) + ", indirect " + (doc.graph.indirect_calls || 0) + ")",
-        doc.diagnostics.length ? "diagnostics: " + doc.diagnostics.map((d) => d.code).join(", ") : "diagnostics: none"
-      ].join("\n");
-    } catch (err) {
+    call("/analyze", { path: $("path").value.trim() }).then(function (text) {
+      var doc = JSON.parse(text);
+      var lines = [];
+      lines.push("status: " + doc.status + "   size: " + doc.target.size + " bytes");
+      lines.push("findings: " + doc.findings.length);
+      lines.push("functions: " + doc.graph.nodes.length);
+      lines.push("edges: " + doc.graph.edges.length + " (imports " + (doc.graph.import_calls || 0) + ", indirect " + (doc.graph.indirect_calls || 0) + ")");
+      lines.push(doc.diagnostics.length ? "diagnostics: " + doc.diagnostics.map(function (d) { return d.code; }).join(", ") : "diagnostics: none");
+      $("out").textContent = lines.join(String.fromCharCode(10));
+    }).catch(function (err) {
       $("out").textContent = "error: " + err.message;
-    }
+    });
   };
 
   function table(title, rows, columns) {
-    if (!rows.length) return "<p class=\"muted\">" + esc(title) + ": none</p>";
-    const head = columns.map((c) => "<th>" + esc(c) + "</th>").join("");
-    const body = rows.slice(0, 200).map((row) => "<tr>" +
-      columns.map((c) => "<td>" + esc(row[c] === undefined || row[c] === null ? "" : row[c]) + "</td>").join("") +
-      "</tr>").join("");
-    const more = rows.length > 200 ? "<p class=\"muted\">... and " + (rows.length - 200) + " more</p>" : "";
+    if (!rows.length) return '<p class="muted">' + esc(title) + ": none</p>";
+    var head = columns.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("");
+    var body = rows.slice(0, 200).map(function (row) {
+      return "<tr>" + columns.map(function (c) {
+        var value = row[c];
+        return "<td>" + esc(value === undefined || value === null ? "" : value) + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+    var more = rows.length > 200 ? '<p class="muted">... and ' + (rows.length - 200) + " more</p>" : "";
     return "<h3>" + esc(title) + " (" + rows.length + ")</h3><table><tr>" + head + "</tr>" + body + "</table>" + more;
   }
 
-  $("diff").onclick = async () => {
+  $("diff").onclick = function () {
     $("diffstate").textContent = "working...";
     $("summary").textContent = "";
     $("tables").innerHTML = "";
-    try {
-      const doc = JSON.parse(await call("/diff", { left_path: $("left").value.trim(),
-                                                right_path: $("right").value.trim(),
-                                                ignore_thunks: $("thunks").checked }));
-      const s = doc.summary;
+    call("/diff", { left_path: $("left").value.trim(), right_path: $("right").value.trim(),
+                    ignore_thunks: $("thunks").checked }).then(function (text) {
+      var doc = JSON.parse(text);
+      var s = doc.summary;
       $("summary").textContent = "nodes +" + s.nodes.added + " -" + s.nodes.removed +
         " ~" + s.nodes.moved + " moved ~" + s.nodes.similar + " similar | edges +" +
         s.edges.added + " -" + s.edges.removed + " =" + s.edges.unchanged;
-      $("tables").innerHTML = [
-        table("Added nodes", doc.added_nodes, ["address", "size"]),
-        table("Removed nodes", doc.removed_nodes, ["address", "size"]),
-        table("Added edges", doc.added_edges, ["caller", "callee", "kind"]),
-        table("Removed edges", doc.removed_edges, ["caller", "callee", "kind"])
-      ].join("");
+      $("tables").innerHTML = table("Added nodes", doc.added_nodes, ["address", "size"]) +
+        table("Removed nodes", doc.removed_nodes, ["address", "size"]) +
+        table("Added edges", doc.added_edges, ["caller", "callee", "kind"]) +
+        table("Removed edges", doc.removed_edges, ["caller", "callee", "kind"]);
       $("diffstate").textContent = "done";
-    } catch (err) {
+    }).catch(function (err) {
       $("diffstate").textContent = "error: " + err.message;
-    }
+    });
   };
 
-  $("report").onclick = async () => {
+  $("report").onclick = function () {
     $("diffstate").textContent = "building report...";
-    try {
-      const res = await fetch("/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token() },
-        body: JSON.stringify({ left_path: $("left").value.trim(), right_path: $("right").value.trim(),
-                               format: "html", ignore_thunks: $("thunks").checked })
-      });
-      if (!res.ok) throw new Error(res.status + " " + (await res.text()).slice(0, 200));
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+    fetch("/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token() },
+      body: JSON.stringify({ left_path: $("left").value.trim(), right_path: $("right").value.trim(),
+                             format: "html", ignore_thunks: $("thunks").checked })
+    }).then(function (res) {
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.blob();
+    }).then(function (blob) {
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
       link.href = url;
       link.download = "reversesuite-report.html";
       document.body.appendChild(link);
       link.click();
       link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
       $("diffstate").textContent = "report downloaded";
-    } catch (err) {
+    }).catch(function (err) {
       $("diffstate").textContent = "error: " + err.message;
-    }
+    });
   };
 })();
 </script></body></html>"""
