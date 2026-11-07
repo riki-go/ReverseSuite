@@ -24,6 +24,10 @@ desktop wrapper.
 `serve` prints `PORT=<n> TOKEN=<t>` on stderr and `{"url": ...}` on stdout; the
 token is required in the `Authorization` header (never in the URL).
 
+## Documentation
+
+- คู่มือภาษาไทย: [docs/USER_MANUAL_TH.md](docs/USER_MANUAL_TH.md)
+
 ## Features
 
 - PE loader with hard caps, packer hint (UPX), imports/exports/strings
