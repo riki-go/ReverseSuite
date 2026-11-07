@@ -33,7 +33,8 @@
 
 ```powershell
 cd projects\reversesuite\skills
-Copy-Item _TEMPLATE_SKILL.md my-skill\SKILL.md -Force   # สร้างโฟลเดอร์ก่อน
+New-Item -ItemType Directory my-skill | Out-Null
+Copy-Item _TEMPLATE_SKILL.md my-skill\SKILL.md -Force
 ```
 
 จากนั้นเติมเนื้อหาให้ครบทุกหัวข้อ และเพิ่มแถวในตาราง Index ด้านบน
