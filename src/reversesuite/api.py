@@ -108,24 +108,28 @@ def resolve_in_root(root: Path, raw: str) -> Optional[Path]:
 UI_HTML = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>ReverseSuite</title>
 <style>
-body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:70rem;color:#111}
-h1{margin:0 0 .5rem}h2{margin:1.6rem 0 .4rem;font-size:1.05rem}
-input,button,select{font:inherit;padding:.3rem .5rem}
+body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:72rem;color:#111}
+h1{margin:0 0 .3rem}h2{margin:1.6rem 0 .4rem;font-size:1.05rem}
+input,button{font:inherit;padding:.3rem .5rem}
 input[type=text],input[type=password]{min-width:22rem}
-pre{background:#f4f4f4;padding:1rem;overflow:auto;max-height:22rem}
+pre{background:#f4f4f4;padding:1rem;overflow:auto;max-height:22rem;white-space:pre-wrap}
 table{border-collapse:collapse;margin:.5rem 0;width:100%}
 td,th{border:1px solid #ddd;padding:.2rem .5rem;text-align:left;font-family:ui-monospace,monospace;font-size:12px}
 th{background:#f7f7f7}.muted{color:#666}
 .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.4rem 0}
+.pill{display:inline-block;padding:.1rem .55rem;border-radius:999px;font-size:12px;font-weight:600}
+.ok{background:#d7f5dd;color:#12602a}.bad{background:#ffe0e0;color:#8a1c1c}
 </style></head><body>
-<h1>ReverseSuite</h1>
-<p class="muted">Token stays in this tab (sessionStorage) and is sent only as an Authorization header.</p>
-<div class="row"><input id="token" type="password" placeholder="session token" size="40">
-<button id="save">use token</button><span id="tokstate" class="muted"></span></div>
+<h1>ReverseSuite <span id="status" class="pill bad">checking...</span></h1>
+<p class="muted">Static PE analysis: functions, strings, call graph, diff and reports.</p>
+<div class="row" id="tokenrow"><input id="token" type="password" placeholder="session token" size="48">
+<button id="save">use token</button>
+<span class="muted">desktop app fills this automatically; otherwise copy <code>token</code> from <code>%LOCALAPPDATA%\\ReverseSuite\\session.json</code></span></div>
 
 <h2>Analyze</h2>
-<div class="row"><input id="path" type="text" placeholder="absolute path inside the allowlisted root">
+<div class="row"><input id="path" type="text" placeholder="absolute path to a .exe inside the allowed root">
 <button id="run">analyze</button></div>
+<p class="muted" id="roothint"></p>
 <pre id="out">ready</pre>
 
 <h2>Diff &amp; Report</h2>
@@ -138,103 +142,120 @@ th{background:#f7f7f7}.muted{color:#666}
 <div id="tables"></div>
 
 <script>
-const $ = (id) => document.getElementById(id);
-const token = () => sessionStorage.getItem("rs-token") || "";
-const esc = (value) => String(value).replace(/[&<>"\']/g, (c) => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const token = () => (window.__rs_token || sessionStorage.getItem("rs-token") || "");
+  const esc = (v) => String(v).replace(/[&<>"\']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-$("save").onclick = () => {
-  sessionStorage.setItem("rs-token", $("token").value.trim());
-  $("tokstate").textContent = "token saved for this tab";
-};
-
-async function call(route, payload) {
-  const res = await fetch(route, {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token()},
-    body: JSON.stringify(payload)
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(res.status + " " + text.slice(0, 300));
-  return text;
-}
-
-$("run").onclick = async () => {
-  $("out").textContent = "working...";
-  try {
-    const text = await call("/analyze", {path: $("path").value});
-    const doc = JSON.parse(text);
-    $("out").textContent = [
-      "status: " + doc.status,
-      "findings: " + doc.findings.length,
-      "functions: " + doc.graph.nodes.length,
-      "edges: " + doc.graph.edges.length,
-      "imports: " + (doc.graph.import_calls || 0),
-      "indirect: " + (doc.graph.indirect_calls || 0)
-    ].join("\n");
-  } catch (err) {
-    $("out").textContent = "error: " + err.message;
+  function paintStatus() {
+    const badge = $("status");
+    const have = token().length > 0;
+    badge.textContent = have ? "connected" : "token required";
+    badge.className = "pill " + (have ? "ok" : "bad");
+    $("tokenrow").style.display = have ? "none" : "flex";
+    $("token").value = have ? "" : $("token").value;
   }
-};
+  paintStatus();
 
-function table(title, rows, columns) {
-  if (!rows.length) return "<p class=\"muted\">" + esc(title) + ": none</p>";
-  const head = columns.map((c) => "<th>" + esc(c) + "</th>").join("");
-  const body = rows.slice(0, 200).map((row) => "<tr>" +
-    columns.map((c) => "<td>" + esc(row[c] === undefined || row[c] === null ? "" : row[c]) + "</td>").join("") +
-    "</tr>").join("");
-  const more = rows.length > 200 ? "<p class=\"muted\">... and " + (rows.length - 200) + " more</p>" : "";
-  return "<h3>" + esc(title) + " (" + rows.length + ")</h3><table><tr>" + head + "</tr>" + body + "</table>" + more;
-}
+  $("save").onclick = () => {
+    sessionStorage.setItem("rs-token", $("token").value.trim());
+    paintStatus();
+  };
 
-$("diff").onclick = async () => {
-  $("diffstate").textContent = "working...";
-  $("summary").textContent = "";
-  $("tables").innerHTML = "";
-  try {
-    const text = await call("/diff", {left_path: $("left").value, right_path: $("right").value,
-                                      ignore_thunks: $("thunks").checked});
-    const doc = JSON.parse(text);
-    const s = doc.summary;
-    $("summary").textContent = "nodes +" + s.nodes.added + " -" + s.nodes.removed +
-      " ~" + s.nodes.moved + " (moved) ~" + s.nodes.similar + " (similar) | edges +" +
-      s.edges.added + " -" + s.edges.removed + " =" + s.edges.unchanged;
-    $("tables").innerHTML = [
-      table("Added nodes", doc.added_nodes, ["address", "size"]),
-      table("Removed nodes", doc.removed_nodes, ["address", "size"]),
-      table("Added edges", doc.added_edges, ["caller", "callee", "kind"]),
-      table("Removed edges", doc.removed_edges, ["caller", "callee", "kind"])
-    ].join("");
-    $("diffstate").textContent = "done";
-  } catch (err) {
-    $("diffstate").textContent = "error: " + err.message;
-  }
-};
+  fetch("/healthz").then((r) => r.json()).then(() => {
+    $("roothint").textContent = "backend: " + location.origin + " · allowed root: the folder passed with --root (desktop app uses %USERPROFILE%)";
+  }).catch(() => {});
 
-$("report").onclick = async () => {
-  $("diffstate").textContent = "building report...";
-  try {
-    const res = await fetch("/report", {
+  async function call(route, payload) {
+    const res = await fetch(route, {
       method: "POST",
-      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token()},
-      body: JSON.stringify({left_path: $("left").value, right_path: $("right").value, format: "html",
-                            ignore_thunks: $("thunks").checked})
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token() },
+      body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error(res.status + " " + (await res.text()).slice(0, 200));
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "reversesuite-report.html";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    $("diffstate").textContent = "report downloaded";
-  } catch (err) {
-    $("diffstate").textContent = "error: " + err.message;
+    const text = await res.text();
+    if (res.status === 401) throw new Error("unauthorised: token missing or wrong (open the desktop app, or paste the token from session.json)");
+    if (res.status === 403) throw new Error("path rejected: it must be inside the allowed root folder");
+    if (res.status === 400) throw new Error("bad request: " + text.slice(0, 200));
+    if (!res.ok) throw new Error(res.status + " " + text.slice(0, 200));
+    return text;
   }
-};
+
+  $("run").onclick = async () => {
+    $("out").textContent = "working...";
+    try {
+      const doc = JSON.parse(await call("/analyze", { path: $("path").value.trim() }));
+      $("out").textContent = [
+        "status: " + doc.status + "   size: " + doc.target.size + " bytes",
+        "findings: " + doc.findings.length,
+        "functions: " + doc.graph.nodes.length,
+        "edges: " + doc.graph.edges.length + " (imports " + (doc.graph.import_calls || 0) + ", indirect " + (doc.graph.indirect_calls || 0) + ")",
+        doc.diagnostics.length ? "diagnostics: " + doc.diagnostics.map((d) => d.code).join(", ") : "diagnostics: none"
+      ].join("\n");
+    } catch (err) {
+      $("out").textContent = "error: " + err.message;
+    }
+  };
+
+  function table(title, rows, columns) {
+    if (!rows.length) return "<p class=\"muted\">" + esc(title) + ": none</p>";
+    const head = columns.map((c) => "<th>" + esc(c) + "</th>").join("");
+    const body = rows.slice(0, 200).map((row) => "<tr>" +
+      columns.map((c) => "<td>" + esc(row[c] === undefined || row[c] === null ? "" : row[c]) + "</td>").join("") +
+      "</tr>").join("");
+    const more = rows.length > 200 ? "<p class=\"muted\">... and " + (rows.length - 200) + " more</p>" : "";
+    return "<h3>" + esc(title) + " (" + rows.length + ")</h3><table><tr>" + head + "</tr>" + body + "</table>" + more;
+  }
+
+  $("diff").onclick = async () => {
+    $("diffstate").textContent = "working...";
+    $("summary").textContent = "";
+    $("tables").innerHTML = "";
+    try {
+      const doc = JSON.parse(await call("/diff", { left_path: $("left").value.trim(),
+                                                right_path: $("right").value.trim(),
+                                                ignore_thunks: $("thunks").checked }));
+      const s = doc.summary;
+      $("summary").textContent = "nodes +" + s.nodes.added + " -" + s.nodes.removed +
+        " ~" + s.nodes.moved + " moved ~" + s.nodes.similar + " similar | edges +" +
+        s.edges.added + " -" + s.edges.removed + " =" + s.edges.unchanged;
+      $("tables").innerHTML = [
+        table("Added nodes", doc.added_nodes, ["address", "size"]),
+        table("Removed nodes", doc.removed_nodes, ["address", "size"]),
+        table("Added edges", doc.added_edges, ["caller", "callee", "kind"]),
+        table("Removed edges", doc.removed_edges, ["caller", "callee", "kind"])
+      ].join("");
+      $("diffstate").textContent = "done";
+    } catch (err) {
+      $("diffstate").textContent = "error: " + err.message;
+    }
+  };
+
+  $("report").onclick = async () => {
+    $("diffstate").textContent = "building report...";
+    try {
+      const res = await fetch("/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token() },
+        body: JSON.stringify({ left_path: $("left").value.trim(), right_path: $("right").value.trim(),
+                               format: "html", ignore_thunks: $("thunks").checked })
+      });
+      if (!res.ok) throw new Error(res.status + " " + (await res.text()).slice(0, 200));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "reversesuite-report.html";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      $("diffstate").textContent = "report downloaded";
+    } catch (err) {
+      $("diffstate").textContent = "error: " + err.message;
+    }
+  };
+})();
 </script></body></html>"""
 
 def make_handler(token: str, root: Path, workers: int = 1):

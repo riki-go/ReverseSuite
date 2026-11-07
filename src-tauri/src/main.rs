@@ -65,8 +65,8 @@ fn main() {
         .manage(Backend(Mutex::new(None)))
         .setup(move |app| {
             let script = format!(
-                "try{{sessionStorage.setItem('rs-token','{}');}}catch(e){{}}",
-                token
+                "window.__rs_token='{}';try{{sessionStorage.setItem('rs-token','{}');}}catch(e){{}}",
+                token, token
             );
             // A webview needs an interactive desktop session; when the app is started
             // from a service/session-0 context the build fails. Keep going headless so
