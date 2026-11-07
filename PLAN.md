@@ -235,6 +235,14 @@
 - `GET /` เสิร์ฟหน้า HTML เดียวจบ (ไม่มี asset ภายนอก) พร้อม `Content-Security-Policy: default-src none; style-src unsafe-inline; script-src unsafe-inline` และ `X-Content-Type-Options: nosniff`
 - token เก็บใน `sessionStorage` ของแท็บและส่งผ่าน `Authorization` เท่านั้น — ห้ามอยู่ใน URL/query
 - ผ่านเมื่อ: หน้าโหลดได้โดยไม่ต้องมี token แต่ยังตรวจ Host/Origin, ไม่มี CORS wildcard, และการเรียก `/analyze` จากหน้าเว็บใช้ header เท่านั้น
+- UI ต้องมีส่วน Diff & Report ครบวงจร: กรอก left/right, `ignore thunks`, ปุ่ม Run Diff (แสดงตาราง Added/Removed nodes + Added/Removed edges), ปุ่ม Download Report (fetch → Blob → `URL.createObjectURL`)
+- ทุกค่าที่เอามาแสดงต้องผ่าน escape หรือ `textContent`; ห้ามโหลดไลบรารีภายนอก (Vanilla JS เท่านั้น)
+
+### AC-22 Diff/Report API endpoints (M3 slice 2)
+- `POST /diff` รับ `{left_path, right_path, ignore_thunks?}` → ตรวจ allowlist → สร้าง graph ทั้งสองไฟล์ → diff → คืน JSON (`summary`, `added_nodes`, `removed_nodes`, `moved_nodes`, `added_edges`, `removed_edges`, `unchanged_edges`)
+- `POST /report` รับ `{left_path, right_path, format: html|md, ignore_thunks?}` → คืน document พร้อม `Content-Disposition: attachment; filename="..."` และ Content-Type ที่ตรงกับ format
+- ผ่านเมื่อ: path นอก allowlist → **403**; path ที่ไม่มีอยู่ → **400**; format ไม่รองรับ → **400**; ไม่มี token → **401** (ทุก endpoint); self-diff ต้องได้ added/removed = 0
+- ผลวัด: b vs a ผ่าน `/diff` ได้ added nodes/edges > 0, self-diff = 0, `/report` html ได้ `attachment; filename="reversesuite-b.html"` และเนื้อหา "No changes detected", md ได้ `text/markdown`
 
 ## 7b. M1 split (ตามรีวิว — M1 ต้องเล็ก)
 - **M1a Base** (ต้องผ่านก่อน): AC-1, AC-4, AC-5, AC-8, AC-11, AC-12, AC-13
@@ -465,3 +473,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.11: M2 slice 3 — import table + IAT resolution (`loader.imports`, edge kind `import`). b.exe 45/45 import entries ตรง objdump, a.exe 92/92; call graph b.exe direct 71 / import 56 / tail 2 / indirect 33 (site recall 1.0000, precision 0.9843), edges 129. พบว่า a.exe ใช้ incremental-link thunks (`jmp <addr>`) 1,188 ตัว ไม่ใช่ IAT stub จึงคง thunk 4,368 edges ตามจริง. unittest 75/75 OK
 - v4.12: M2 slice 4 — report layer (`src/reversesuite/report.py`) + subcommand `reversesuite report <a> <b> --format md|html --out ... --ignore-thunks`. HTML standalone escape ทุกค่าจากไบแนรี, ตัด 50 แถว/หมวด, deterministic; ตัวอย่าง b vs a (ignore-thunks) = 10,323 bytes. unittest 83/83 OK
 - v4.13: เปิด M3 — local API + UI shell (`src/reversesuite/api.py`) และ subcommand `reversesuite serve --root DIR [--port] [--token]`. ปิด AC-10 ครบ (401/403/no-wildcard/query-token ใช้ไม่ได้) + AC-21 (UI shell, CSP, token ใน sessionStorage). endpoint: `GET /healthz`, `GET /rules`, `POST /analyze` (loader+functions+strings+callgraph, คืน canonical doc + graph), `GET /`. unittest 94/94 OK
+- v4.14: ปิดวงจร M3 — เพิ่ม `POST /diff` + `POST /report` (allowlist 403 / missing 400 / bad format 400), อัปเกรด UI shell เป็น Diff & Report เต็มรูปแบบ (ตารางผล diff, ปุ่มดาวน์โหลดผ่าน Blob + `createObjectURL`, escape ทุกค่า, Vanilla JS, CSP เดิม). unittest 104/104 OK (test_api 21 เคส)

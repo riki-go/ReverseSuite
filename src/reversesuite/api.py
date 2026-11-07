@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import urlsplit
 
-from . import callgraph, functions, loader, rules, schema, strings
+from . import callgraph, diff as diff_mod, functions, loader, report as report_mod, rules, schema, strings
 
 MAX_BODY = 64 * 1024
 
@@ -59,6 +59,12 @@ def analyze_bytes(data: bytes, workers: int = 1) -> dict:
     return doc
 
 
+def _attachment_name(path: str, fmt: str) -> str:
+    stem = Path(path).stem or "report"
+    safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in stem)[:60]
+    return "reversesuite-%s.%s" % (safe, "html" if fmt == "html" else "md")
+
+
 def resolve_in_root(root: Path, raw: str) -> Optional[Path]:
     try:
         candidate = Path(raw).resolve(strict=False)
@@ -73,32 +79,133 @@ def resolve_in_root(root: Path, raw: str) -> Optional[Path]:
 
 UI_HTML = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>ReverseSuite</title>
-<style>body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:60rem}
-input,button{font:inherit;padding:.3rem .5rem}pre{background:#f4f4f4;padding:1rem;overflow:auto}</style>
-</head><body>
+<style>
+body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:70rem;color:#111}
+h1{margin:0 0 .5rem}h2{margin:1.6rem 0 .4rem;font-size:1.05rem}
+input,button,select{font:inherit;padding:.3rem .5rem}
+input[type=text],input[type=password]{min-width:22rem}
+pre{background:#f4f4f4;padding:1rem;overflow:auto;max-height:22rem}
+table{border-collapse:collapse;margin:.5rem 0;width:100%}
+td,th{border:1px solid #ddd;padding:.2rem .5rem;text-align:left;font-family:ui-monospace,monospace;font-size:12px}
+th{background:#f7f7f7}.muted{color:#666}
+.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.4rem 0}
+</style></head><body>
 <h1>ReverseSuite</h1>
-<p>Token stays in memory only (sent as an Authorization header, never in the URL).</p>
-<p><input id="token" type="password" placeholder="session token" size="40">
-<button id="save">use token</button></p>
-<p><input id="path" placeholder="absolute path inside the allowlisted root" size="60">
-<button id="run">analyze</button></p>
+<p class="muted">Token stays in this tab (sessionStorage) and is sent only as an Authorization header.</p>
+<div class="row"><input id="token" type="password" placeholder="session token" size="40">
+<button id="save">use token</button><span id="tokstate" class="muted"></span></div>
+
+<h2>Analyze</h2>
+<div class="row"><input id="path" type="text" placeholder="absolute path inside the allowlisted root">
+<button id="run">analyze</button></div>
 <pre id="out">ready</pre>
+
+<h2>Diff &amp; Report</h2>
+<div class="row"><input id="left" type="text" placeholder="left binary path">
+<input id="right" type="text" placeholder="right binary path">
+<label><input id="thunks" type="checkbox"> ignore thunks</label></div>
+<div class="row"><button id="diff">run diff</button>
+<button id="report">download report</button><span id="diffstate" class="muted"></span></div>
+<div id="summary"></div>
+<div id="tables"></div>
+
 <script>
-const tokenInput = document.getElementById("token");
-document.getElementById("save").onclick = () => {
-  sessionStorage.setItem("rs-token", tokenInput.value.trim());
-  document.getElementById("out").textContent = "token saved for this tab";
+const $ = (id) => document.getElementById(id);
+const token = () => sessionStorage.getItem("rs-token") || "";
+const esc = (value) => String(value).replace(/[&<>"\']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
+$("save").onclick = () => {
+  sessionStorage.setItem("rs-token", $("token").value.trim());
+  $("tokstate").textContent = "token saved for this tab";
 };
-document.getElementById("run").onclick = async () => {
-  const token = sessionStorage.getItem("rs-token") || "";
-  const path = document.getElementById("path").value;
-  const res = await fetch("/analyze", {
+
+async function call(route, payload) {
+  const res = await fetch(route, {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
-    body: JSON.stringify({path: path})
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token()},
+    body: JSON.stringify(payload)
   });
   const text = await res.text();
-  document.getElementById("out").textContent = res.status + " " + text.slice(0, 4000);
+  if (!res.ok) throw new Error(res.status + " " + text.slice(0, 300));
+  return text;
+}
+
+$("run").onclick = async () => {
+  $("out").textContent = "working...";
+  try {
+    const text = await call("/analyze", {path: $("path").value});
+    const doc = JSON.parse(text);
+    $("out").textContent = [
+      "status: " + doc.status,
+      "findings: " + doc.findings.length,
+      "functions: " + doc.graph.nodes.length,
+      "edges: " + doc.graph.edges.length,
+      "imports: " + (doc.graph.import_calls || 0),
+      "indirect: " + (doc.graph.indirect_calls || 0)
+    ].join("\n");
+  } catch (err) {
+    $("out").textContent = "error: " + err.message;
+  }
+};
+
+function table(title, rows, columns) {
+  if (!rows.length) return "<p class=\"muted\">" + esc(title) + ": none</p>";
+  const head = columns.map((c) => "<th>" + esc(c) + "</th>").join("");
+  const body = rows.slice(0, 200).map((row) => "<tr>" +
+    columns.map((c) => "<td>" + esc(row[c] === undefined || row[c] === null ? "" : row[c]) + "</td>").join("") +
+    "</tr>").join("");
+  const more = rows.length > 200 ? "<p class=\"muted\">... and " + (rows.length - 200) + " more</p>" : "";
+  return "<h3>" + esc(title) + " (" + rows.length + ")</h3><table><tr>" + head + "</tr>" + body + "</table>" + more;
+}
+
+$("diff").onclick = async () => {
+  $("diffstate").textContent = "working...";
+  $("summary").textContent = "";
+  $("tables").innerHTML = "";
+  try {
+    const text = await call("/diff", {left_path: $("left").value, right_path: $("right").value,
+                                      ignore_thunks: $("thunks").checked});
+    const doc = JSON.parse(text);
+    const s = doc.summary;
+    $("summary").textContent = "nodes +" + s.nodes.added + " -" + s.nodes.removed +
+      " ~" + s.nodes.moved + " (moved) ~" + s.nodes.similar + " (similar) | edges +" +
+      s.edges.added + " -" + s.edges.removed + " =" + s.edges.unchanged;
+    $("tables").innerHTML = [
+      table("Added nodes", doc.added_nodes, ["address", "size"]),
+      table("Removed nodes", doc.removed_nodes, ["address", "size"]),
+      table("Added edges", doc.added_edges, ["caller", "callee", "kind"]),
+      table("Removed edges", doc.removed_edges, ["caller", "callee", "kind"])
+    ].join("");
+    $("diffstate").textContent = "done";
+  } catch (err) {
+    $("diffstate").textContent = "error: " + err.message;
+  }
+};
+
+$("report").onclick = async () => {
+  $("diffstate").textContent = "building report...";
+  try {
+    const res = await fetch("/report", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token()},
+      body: JSON.stringify({left_path: $("left").value, right_path: $("right").value, format: "html",
+                            ignore_thunks: $("thunks").checked})
+    });
+    if (!res.ok) throw new Error(res.status + " " + (await res.text()).slice(0, 200));
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "reversesuite-report.html";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    $("diffstate").textContent = "report downloaded";
+  } catch (err) {
+    $("diffstate").textContent = "error: " + err.message;
+  }
 };
 </script></body></html>"""
 
@@ -195,6 +302,59 @@ def make_handler(token: str, root: Path, workers: int = 1):
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
             except Exception:
                 self._send(400, {"error": "bad_json"})
+                return
+            if self.path.split("?")[0] == "/diff":
+                left = resolve_in_root(root, str(payload.get("left_path", "")))
+                right = resolve_in_root(root, str(payload.get("right_path", "")))
+                if left is None or right is None:
+                    self._send(403, {"error": "path_not_allowed"})
+                    return
+                if not left.is_file() or not right.is_file():
+                    self._send(400, {"error": "path_not_found"})
+                    return
+                try:
+                    result = diff_mod.diff_graphs(callgraph.build(left.read_bytes()).as_dict(),
+                                                  callgraph.build(right.read_bytes()).as_dict(),
+                                                  ignore_thunks=bool(payload.get("ignore_thunks", False)))
+                except Exception as exc:
+                    self._send(500, {"error": "diff_failed", "detail": exc.__class__.__name__})
+                    return
+                doc = result.as_dict()
+                doc["left"] = str(left)
+                doc["right"] = str(right)
+                self._send(200, doc)
+                return
+            if self.path.split("?")[0] == "/report":
+                fmt = str(payload.get("format", "html")).lower()
+                if fmt not in ("html", "md", "markdown"):
+                    self._send(400, {"error": "bad_format"})
+                    return
+                left = resolve_in_root(root, str(payload.get("left_path", "")))
+                right = resolve_in_root(root, str(payload.get("right_path", "")))
+                if left is None or right is None:
+                    self._send(403, {"error": "path_not_allowed"})
+                    return
+                if not left.is_file() or not right.is_file():
+                    self._send(400, {"error": "path_not_found"})
+                    return
+                try:
+                    result = diff_mod.diff_graphs(callgraph.build(left.read_bytes()).as_dict(),
+                                                  callgraph.build(right.read_bytes()).as_dict(),
+                                                  ignore_thunks=bool(payload.get("ignore_thunks", False)))
+                    document = report_mod.render(result, left.name, right.name, fmt)
+                except Exception as exc:
+                    self._send(500, {"error": "report_failed", "detail": exc.__class__.__name__})
+                    return
+                body = document.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8" if fmt == "html"
+                                 else "text/markdown; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="%s"' % _attachment_name(str(left), fmt))
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
                 return
             if self.path.split("?")[0] != "/analyze":
                 self._send(404, {"error": "not_found"})

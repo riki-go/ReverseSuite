@@ -103,6 +103,85 @@ class ApiTests(unittest.TestCase):
         self.assertIn("text/html", headers.get("Content-Type", ""))
         self.assertNotIn("Access-Control-Allow-Origin", headers)
 
+    def test_diff_between_two_binaries(self):
+        status, text, _ = self.request("POST", "/diff", token=self.token,
+                                       body={"left_path": str(ROOT / "b.exe"),
+                                             "right_path": str(ROOT / "a.exe")})
+        self.assertEqual(status, 200, text[:300])
+        doc = json.loads(text)
+        self.assertGreater(doc["summary"]["nodes"]["added"], 0)
+        self.assertGreater(doc["summary"]["nodes"]["removed"], 0)
+        self.assertGreater(doc["summary"]["edges"]["added"], 0)
+        self.assertTrue(doc["added_nodes"])
+        self.assertTrue(doc["removed_nodes"])
+
+    def test_diff_self_is_empty(self):
+        status, text, _ = self.request("POST", "/diff", token=self.token,
+                                       body={"left_path": str(ROOT / "b.exe"),
+                                             "right_path": str(ROOT / "b.exe")})
+        self.assertEqual(status, 200)
+        summary = json.loads(text)["summary"]
+        self.assertEqual(summary["edges"]["added"], 0)
+        self.assertEqual(summary["edges"]["removed"], 0)
+        self.assertGreater(summary["edges"]["unchanged"], 0)
+
+    def test_diff_missing_file_is_400(self):
+        status, _, _ = self.request("POST", "/diff", token=self.token,
+                                    body={"left_path": str(ROOT / "missing.exe"),
+                                          "right_path": str(ROOT / "b.exe")})
+        self.assertEqual(status, 400)
+
+    def test_diff_outside_root_is_403(self):
+        status, _, _ = self.request("POST", "/diff", token=self.token,
+                                    body={"left_path": "C:/Windows/System32/notepad.exe",
+                                          "right_path": str(ROOT / "b.exe")})
+        self.assertEqual(status, 403)
+
+    def test_report_returns_downloadable_html(self):
+        status, text, headers = self.request("POST", "/report", token=self.token,
+                                             body={"left_path": str(ROOT / "b.exe"),
+                                                   "right_path": str(ROOT / "b.exe"),
+                                                   "format": "html"})
+        self.assertEqual(status, 200, text[:300])
+        self.assertIn("attachment;", headers.get("Content-Disposition", ""))
+        self.assertIn(".html", headers.get("Content-Disposition", ""))
+        self.assertIn("text/html", headers.get("Content-Type", ""))
+        self.assertIn("No changes detected", text)
+
+    def test_report_markdown_format(self):
+        status, text, headers = self.request("POST", "/report", token=self.token,
+                                             body={"left_path": str(ROOT / "b.exe"),
+                                                   "right_path": str(ROOT / "b.exe"),
+                                                   "format": "md"})
+        self.assertEqual(status, 200)
+        self.assertIn("text/markdown", headers.get("Content-Type", ""))
+        self.assertIn("# ReverseSuite diff report", text)
+
+    def test_report_bad_format_is_400(self):
+        status, _, _ = self.request("POST", "/report", token=self.token,
+                                    body={"left_path": str(ROOT / "b.exe"),
+                                          "right_path": str(ROOT / "b.exe"),
+                                          "format": "pdf"})
+        self.assertEqual(status, 400)
+
+    def test_report_outside_root_is_403(self):
+        status, _, _ = self.request("POST", "/report", token=self.token,
+                                    body={"left_path": str(ROOT / "b.exe"),
+                                          "right_path": "C:/Windows/System32/notepad.exe"})
+        self.assertEqual(status, 403)
+
+    def test_diff_requires_token(self):
+        status, _, _ = self.request("POST", "/diff", body={"left_path": "x", "right_path": "y"})
+        self.assertEqual(status, 401)
+
+    def test_ui_shell_has_diff_section(self):
+        status, text, _ = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn("Diff &amp; Report", text)
+        self.assertIn("/report", text)
+        self.assertIn("createObjectURL", text)
+        self.assertNotIn("http://cdn", text)
+
 
 if __name__ == "__main__":
     unittest.main()
