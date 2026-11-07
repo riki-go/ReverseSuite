@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Set
 
 import capstone
 
-from . import disasm
+from . import disasm, rules, schema
 
 CONF_EXPORT = 1000
 CONF_ENTRY = 950
@@ -22,6 +22,8 @@ CONF_CALL = 900
 TERMINATORS = {"ret", "retf", "jmp", "int3", "ud2", "hlt"}
 MAX_INSNS_PER_FUNCTION = 20000
 THUNK_MAX_BYTES = 16
+MAX_FUNCTION_TEXT_BYTES = 32 * 1024 * 1024
+FUNCTION_SKIP_TEXT_TOO_LARGE = "text_too_large_for_functions"
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,13 @@ class Function:
     def as_dict(self) -> dict:
         return {"start": self.start, "size": self.size, "sources": list(self.sources),
                 "confidence_permille": self.confidence_permille, "level": self.level}
+
+
+def skip_reason(text_bytes: int, max_bytes: Optional[int] = MAX_FUNCTION_TEXT_BYTES) -> Optional[str]:
+    """Diagnostic code when discovery is skipped, else None."""
+    if max_bytes is not None and text_bytes > max_bytes:
+        return FUNCTION_SKIP_TEXT_TOO_LARGE
+    return None
 
 
 def _build_index(engine: capstone.Cs, blob: bytes, base: int):
@@ -72,10 +81,31 @@ def _decode_body(index: dict, base: int, start: int, limit: int):
             return (addr, True, count)
     return (addr, False, count)
 
+RULE_FUNCTION = "pe.function.discover"
+
+
+def to_findings(funcs: Iterable["Function"]):
+    """AC-14: convert discovered functions into schema findings."""
+    out = []
+    for fn in funcs:
+        out.append(schema.Finding(
+            kind="function",
+            value=f"0x{fn.start:x}",
+            confidence_permille=fn.confidence_permille,
+            level=fn.level,
+            rule=RULE_FUNCTION,
+            evidence=[schema.Evidence(offset=fn.start, space="va", xref=None, rule=RULE_FUNCTION)],
+        ))
+    return out
+
+
 def discover(blob: bytes, base: int = disasm.BASE_ADDRESS,
              exports: Optional[List[int]] = None,
              entry: Optional[int] = None,
-             md: Optional[capstone.Cs] = None) -> List[Function]:
+             md: Optional[capstone.Cs] = None,
+             max_bytes: Optional[int] = MAX_FUNCTION_TEXT_BYTES) -> List[Function]:
+    if skip_reason(len(blob), max_bytes):
+        return []
     engine = md or disasm.make_engine()
     index = _build_index(engine, blob, base)
     limit = base + len(blob)

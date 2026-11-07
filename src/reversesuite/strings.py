@@ -18,7 +18,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import capstone
 
-from . import disasm, loader
+from . import disasm, loader, rules, schema
 
 MIN_LENGTH = 4
 ASCII_PRINTABLE = frozenset(list(range(0x20, 0x7F)) + [0x09])
@@ -38,6 +38,31 @@ class ExtractedString:
     section: str
     length: int
     xrefs: Tuple[int, ...] = ()
+
+
+RULE_ASCII = "pe.string.ascii"
+RULE_UTF16 = "pe.string.utf16le"
+RULE_XREF = "pe.string.xref"
+
+
+def to_findings(items: Sequence["ExtractedString"], cap: int = 1000):
+    """AC-14: convert extracted strings into schema findings."""
+    out = []
+    for item in items:
+        rule = RULE_ASCII if item.encoding == "ascii" else RULE_UTF16
+        evidence = [schema.Evidence(offset=item.address, space="va", xref=None, rule=rule)]
+        for site in item.xrefs:
+            evidence.append(schema.Evidence(offset=site, space="va", xref=item.address, rule=RULE_XREF))
+        out.append(schema.Finding(
+            kind="string",
+            value=item.value,
+            confidence_permille=cap,
+            level=item.section or "data",
+            rule=rule,
+            encoding=item.encoding,
+            evidence=evidence,
+        ))
+    return out
 
 
 def _image_base(data: bytes) -> int:

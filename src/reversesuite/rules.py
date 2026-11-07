@@ -13,6 +13,7 @@ class Rule:
 
 
 _RULES: Dict[str, Rule] = {}
+_DISABLED: set = set()
 
 
 def register(rule: Rule) -> Rule:
@@ -34,6 +35,24 @@ def is_registered(rule_id: str) -> bool:
     return rule_id in _RULES
 
 
+def disable(rule_id: str) -> None:
+    if rule_id not in _RULES:
+        raise KeyError(f"unknown rule: {rule_id}")
+    _DISABLED.add(rule_id)
+
+
+def enable(rule_id: str) -> None:
+    _DISABLED.discard(rule_id)
+
+
+def is_enabled(rule_id: str) -> bool:
+    return rule_id in _RULES and rule_id not in _DISABLED
+
+
+def enabled_rules() -> Iterable[Rule]:
+    return tuple(r for r in _RULES.values() if r.id not in _DISABLED)
+
+
 # --- built-in rules (M1a: loader/schema level) ---
 register(Rule("pe.header.parse", "parse DOS header and e_lfanew"))
 register(Rule("pe.coff.parse", "parse COFF file header"))
@@ -44,3 +63,9 @@ register(Rule("pe.export.parse", "parse export directory"))
 register(Rule("pe.strings.scan", "extract printable strings"))
 register(Rule("pe.packer.upx", "detect UPX packing signature"))
 register(Rule("pe.corrupt.diagnose", "report structural damage"))
+
+# --- M1b: analysis layers ---
+register(Rule("pe.function.discover", "function bounds from CFG-lite recursive descent"))
+register(Rule("pe.string.ascii", "printable ASCII string"))
+register(Rule("pe.string.utf16le", "UTF-16LE string"))
+register(Rule("pe.string.xref", "code reference to a string"))

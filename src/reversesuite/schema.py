@@ -102,6 +102,18 @@ class Diagnostic:
         return {"code": self.code, "message": self.message, "severity": self.severity, "params": self.params}
 
 
+def enforce_rules(findings: List[Finding]) -> List[Finding]:
+    """AC-14: every finding cites a registered rule; disabled rules disappear."""
+    kept: List[Finding] = []
+    for item in findings:
+        if not rules.is_registered(item.rule):
+            raise ValueError(f"unregistered rule: {item.rule}")
+        if not rules.is_enabled(item.rule):
+            continue
+        kept.append(item)
+    return kept
+
+
 @dataclass
 class AnalysisResult:
     target_sha256: str
