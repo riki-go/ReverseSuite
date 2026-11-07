@@ -7,3 +7,9 @@ fixtures/audit/
 spikes/**/out/
 __pycache__/
 *.pyc
+node_modules/
+src-tauri/target/
+src-tauri/binaries/*.exe
+src-tauri/binaries/tmp/
+build/pyi*/
+build/*.spec

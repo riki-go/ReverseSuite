@@ -11,7 +11,10 @@ Security rules enforced here:
 from __future__ import annotations
 
 import json
+import os
 import secrets
+import sys
+import threading
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,6 +24,31 @@ from urllib.parse import urlsplit
 from . import callgraph, diff as diff_mod, functions, loader, report as report_mod, rules, schema, strings
 
 MAX_BODY = 64 * 1024
+
+
+def watch_parent(parent_pid: int) -> None:
+    """Exit when the desktop wrapper dies, so no orphaned backend is left behind."""
+    if os.name != "nt" or parent_pid <= 0:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    SYNCHRONIZE = 0x00100000
+    handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, wintypes.DWORD(parent_pid))
+    if not handle:
+        return
+    try:
+        ctypes.windll.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)
+        os._exit(0)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def start_parent_watch(parent_pid: int) -> None:
+    if os.name != "nt" or parent_pid <= 0:
+        return
+    thread = threading.Thread(target=watch_parent, args=(parent_pid,), daemon=True)
+    thread.start()
 
 
 def new_token() -> str:

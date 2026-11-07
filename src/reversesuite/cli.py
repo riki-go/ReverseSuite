@@ -50,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--port", type=int, default=0)
     sv.add_argument("--workers", type=int, default=1)
     sv.add_argument("--token", default="", help="fixed token (default: random per session)")
+    sv.add_argument("--parent-pid", type=int, default=0, help="exit when this process dies")
     rp = sub.add_parser("report", help="render a diff report as Markdown or HTML")
     rp.add_argument("left")
     rp.add_argument("right")
@@ -81,7 +82,9 @@ def main(argv: list[str] | None = None) -> int:
         except OSError as exc:
             print(f"cannot bind: {exc}", file=sys.stderr)
             return EXIT_USAGE
-        sys.stderr.write("token: %s\n" % token)
+        if args.parent_pid:
+            api_mod.start_parent_watch(args.parent_pid)
+        sys.stderr.write("PORT=%d TOKEN=%s\n" % (server.server_address[1], token))
         sys.stderr.flush()
         sys.stdout.write(json.dumps({"url": "http://127.0.0.1:%d/" % server.server_address[1],
                                      "port": server.server_address[1]}) + chr(10))

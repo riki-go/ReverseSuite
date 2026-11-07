@@ -1,0 +1,11 @@
+{
+  "identifier": "default",
+  "description": "ReverseSuite main window",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "shell:default"
+  ]
+}

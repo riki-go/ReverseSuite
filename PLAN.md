@@ -227,6 +227,15 @@
 - ผ่านเมื่อ: output **deterministic** (input เดิม → ไบต์เดิม), HTML ไม่มี tag ดิบจากข้อมูลที่ escape (ทดสอบด้วย `<script>alert(1)</script>`), ตัวเลขในรายงานตรงกับ JSON diff ทุกช่อง, self-diff ต้องขึ้น "No changes detected", ไฟล์ใหญ่สุดไม่เกิน ~40 KB ในเคส b vs a
 - ผลวัด: b vs a (`--ignore-thunks`) → HTML **10,323 bytes**, deterministic, escape ผ่าน, unittest 83/83 OK
 - ยังไม่ทำ: PDF, กราฟภาพ (graphviz), การแนบ finding/string ในรายงาน (ปัจจุบันรายงานเฉพาะ node/edge ของ diff)
+### AC-23 Desktop wrapper (M4)
+- `src-tauri/` = Tauri v2 app; `productName = ReverseSuite`, หน้าต่าง 1200x800 (ขั้นต่ำ 900x600)
+- backend ถูกห่อด้วย PyInstaller เป็น `reversesuite-backend-<triple>.exe` และผูกผ่าน `bundle.externalBin`
+- ลำดับการทำงาน: สร้าง token สุ่ม → spawn sidecar `serve --root %USERPROFILE% --port 0 --parent-pid <pid> --token <t>` → อ่าน `PORT=<n>` จาก stderr → เขียน `%LOCALAPPDATA%\ReverseSuite\session.json` → `navigate()` ไป `http://127.0.0.1:<n>/` พร้อม `initialization_script` ที่ฝัง token ลง `sessionStorage`
+- token ต้องไม่ถูกพิมพ์ลง log ของฝั่ง Rust (บันทึกแค่ `PORT=`) และไม่ปรากฏใน URL
+- sidecar ต้องตายตาม parent: `--parent-pid` ใช้ `OpenProcess(SYNCHRONIZE)` + `WaitForSingleObject` ในเธรด daemon แล้ว `os._exit(0)`
+- ผ่านเมื่อ: `npx tauri build` ผ่านและได้ MSI, แอปเริ่มได้โดยไม่ต้องเปิด terminal, session handshake ทำงาน (session.json → `/healthz` 200), ปิด parent แล้วไม่มี `reversesuite-backend.exe` ค้าง, `dist/index.html` ซ่อนช่อง token และขึ้น "Connected" เมื่อมี rs-token
+- ผลวัด: MSI `ReverseSuite_0.1.0_x64_en-US.msi` 13.62 MiB; exe 11,336,192 B; cold build 7m52s, incremental 29s; handshake จริง `PORT=55559` → `/healthz` 200 → analyze path นอก root 403; หลัง kill parent backend เหลือ 0 process
+- ข้อจำกัดที่พบ: ใน environment ที่เอเจนต์รันอยู่ (Windows session 0 / ไม่มี interactive desktop) การสร้าง WebView2 ล้มเหลวด้วย `HRESULT 0x80070578 Invalid window handle` — ตัวแอปจึงทำงานแบบ headless (เขียน session.json + ให้บริการ backend ตามปกติ) แต่ **ยังไม่ได้ยืนยันด้วยตาเปล่าว่าหน้าต่างแสดงผลจริงบนเดสก์ท็อปผู้ใช้**
 ### AC-10 Local API security (ปิดแล้วใน M3 slice 1)
 - ไม่มี token -> 401; Host ไม่ใช่ localhost -> 403; Origin แปลกปลอม -> 403; ไม่มี CORS wildcard
 - ผลวัด: `tests/test_api.py` 11 เคสผ่านทั้งหมด — ไม่มี token 401, token ทาง query string **ไม่** ผ่าน (401), Host `evil.example` 403, Origin `https://evil.example` 403, Origin `http://localhost:3000` 200, ไม่มี header `Access-Control-Allow-Origin` ในทุก response, path นอก allowlist 403
@@ -474,3 +483,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.12: M2 slice 4 — report layer (`src/reversesuite/report.py`) + subcommand `reversesuite report <a> <b> --format md|html --out ... --ignore-thunks`. HTML standalone escape ทุกค่าจากไบแนรี, ตัด 50 แถว/หมวด, deterministic; ตัวอย่าง b vs a (ignore-thunks) = 10,323 bytes. unittest 83/83 OK
 - v4.13: เปิด M3 — local API + UI shell (`src/reversesuite/api.py`) และ subcommand `reversesuite serve --root DIR [--port] [--token]`. ปิด AC-10 ครบ (401/403/no-wildcard/query-token ใช้ไม่ได้) + AC-21 (UI shell, CSP, token ใน sessionStorage). endpoint: `GET /healthz`, `GET /rules`, `POST /analyze` (loader+functions+strings+callgraph, คืน canonical doc + graph), `GET /`. unittest 94/94 OK
 - v4.14: ปิดวงจร M3 — เพิ่ม `POST /diff` + `POST /report` (allowlist 403 / missing 400 / bad format 400), อัปเกรด UI shell เป็น Diff & Report เต็มรูปแบบ (ตารางผล diff, ปุ่มดาวน์โหลดผ่าน Blob + `createObjectURL`, escape ทุกค่า, Vanilla JS, CSP เดิม). unittest 104/104 OK (test_api 21 เคส)
+- v4.15: M4 desktop wrapper — Tauri v2 + Python sidecar (PyInstaller), token handshake ผ่าน stderr, `session.json`, parent-pid watchdog, UI static ใน `dist/`, `build.ps1`, README วิธี build. MSI 13.62 MiB build ผ่าน; unittest 104/104 OK. ข้อจำกัด: environment ปัจจุบันเป็น session 0 จึงยืนยันได้แค่ handshake/backend ไม่สามารถยืนยันการแสดงผลหน้าต่าง
