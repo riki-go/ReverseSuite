@@ -23,6 +23,7 @@ def parse(path: Path) -> list:
     out = []
     if not sym_ptr:
         return out
+    strtab_off = sym_ptr + sym_count * 18
     for k in range(sym_count):
         off = sym_ptr + k * 18
         if off + 18 > len(data):
@@ -33,12 +34,15 @@ def parse(path: Path) -> list:
             continue
         if not (typ & 0x20):
             continue
-        if storage not in (2, 3):
-            continue
-        if name_bytes.startswith(b"\x00\x00\x00\x00"):
-            continue
-        name = name_bytes.rstrip(b"\x00").decode("latin-1")
-        if not name or name.startswith("__"):
+        if name_bytes[:4] == b"\x00\x00\x00\x00":
+            long_off = struct.unpack_from("<I", name_bytes, 4)[0]
+            end = data.find(b"\x00", strtab_off + long_off)
+            if end < 0:
+                continue
+            name = data[strtab_off + long_off:end].decode("latin-1")
+        else:
+            name = name_bytes.rstrip(b"\x00").decode("latin-1")
+        if not name:
             continue
         out.append({"addr": 0x1000 + value, "name": name})
     return out
