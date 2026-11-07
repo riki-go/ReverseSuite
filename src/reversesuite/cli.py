@@ -5,8 +5,12 @@ import argparse
 import sys
 
 import json
+import os
 
-from . import disasm, loader
+import hashlib
+import shutil
+
+from . import cache as cache_mod, disasm, loader
 
 EXIT_OK, EXIT_DEGRADED, EXIT_FAILED, EXIT_USAGE, EXIT_INTERNAL = 0, 2, 3, 4, 5
 
@@ -24,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     dis.add_argument("--slim", action="store_true", help="write only address+mnemonic")
     dis.add_argument("--limit-bytes", type=int, default=0, help="disassemble only the first N bytes of .text")
     dis.add_argument("--workers", type=int, default=1, help="parallel worker processes")
+    dis.add_argument("--cache-dir", default="", help="enable artifact cache in this directory")
     args = parser.parse_args(argv)
 
     if args.cmd == "disasm":
@@ -43,11 +48,29 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_FAILED
         if args.limit_bytes:
             text = text[: args.limit_bytes]
+        if args.limit_bytes:
+            key_bytes = text
+        else:
+            key_bytes = text
+        file_sha = hashlib.sha256(data).hexdigest()
+        cache = cache_mod.Cache(__import__("pathlib").Path(args.cache_dir)) if args.cache_dir else None
+        key = cache_mod.make_key(file_sha, mode="disasm", slim=args.slim, gzip=args.gzip,
+                                 limit=args.limit_bytes) if cache else ""
+        if cache is not None:
+            hit = cache.get(key)
+            if hit is not None:
+                shutil.copyfile(hit, args.out)
+                sys.stdout.write(json.dumps({"cached": True, "out": args.out,
+                                             "file_bytes": os.path.getsize(args.out)}) + chr(10))
+                return EXIT_OK
         try:
             summary = disasm.write_stream(text, __import__("pathlib").Path(args.out), args.gzip, args.slim, workers=args.workers)
         except Exception as exc:
             print(f"internal error: {exc.__class__.__name__}", file=sys.stderr)
             return EXIT_INTERNAL
+        summary["cached"] = False
+        if cache is not None:
+            cache.put(key, __import__("pathlib").Path(args.out), {"mode": "disasm", "slim": args.slim})
         sys.stdout.write(json.dumps(summary) + chr(10))
         return EXIT_OK
 
