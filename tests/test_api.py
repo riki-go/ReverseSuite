@@ -50,6 +50,33 @@ class ApiTests(unittest.TestCase):
         conn.close()
         return response.status, text, dict(response.getheaders())
 
+    def raw(self, method, path, payload=b"", token=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.open_server.server_address[1], timeout=120)
+        hdrs = dict(headers or {})
+        if token:
+            hdrs["Authorization"] = "Bearer " + token
+        conn.putrequest(method, path, skip_host=True)
+        conn.putheader("Host", "127.0.0.1:%d" % self.open_server.server_address[1])
+        for key, value in hdrs.items():
+            conn.putheader(key, value)
+        if payload:
+            conn.putheader("Content-Length", str(len(payload)))
+        conn.endheaders()
+        if payload:
+            conn.send(payload)
+        response = conn.getresponse()
+        text = response.read().decode("utf-8", errors="replace")
+        conn.close()
+        return response.status, text
+
+    def upload(self, path):
+        body = Path(path).read_bytes()
+        status, text = self.raw("POST", "/upload", body, self.open_token,
+                                {"Content-Type": "application/octet-stream",
+                                 "X-Filename": Path(path).name})
+        self.assertEqual(status, 200, text[:200])
+        return json.loads(text)["id"]
+
     def request(self, method, path, body=None, token=None, host=None, origin=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
         headers = {}
@@ -327,6 +354,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("url_host_not_allowed", text)
 
+    def test_upload_then_analyze(self):
+        upload_id = self.upload(ROOT / "b.exe")
+        status, text, _ = self.open_request("POST", "/analyze", token=self.open_token,
+                                            body={"upload_id": upload_id})
+        self.assertEqual(status, 200, text[:200])
+        self.assertEqual(json.loads(text)["target"]["size"], 21006)
+
+    def test_upload_rejects_non_pe(self):
+        status, text = self.raw("POST", "/upload", b"hello world", self.open_token,
+                                {"Content-Type": "application/octet-stream", "X-Filename": "x.exe"})
+        self.assertEqual(status, 400)
+        self.assertIn("not_a_pe_file", text)
+
+    def test_unknown_upload_is_400(self):
+        status, text, _ = self.open_request("POST", "/analyze", token=self.open_token,
+                                            body={"upload_id": "deadbeef"})
+        self.assertEqual(status, 400)
+        self.assertIn("upload_not_found", text)
+
+    def test_diff_with_uploads(self):
+        left = self.upload(ROOT / "b.exe")
+        right = self.upload(ROOT / "a.exe")
+        status, text, _ = self.open_request("POST", "/diff", token=self.open_token,
+                                            body={"left_upload_id": left, "right_upload_id": right})
+        self.assertEqual(status, 200, text[:200])
+        summary = json.loads(text)["summary"]
+        self.assertGreater(summary["nodes"]["added"], 0)
+        self.assertGreater(summary["nodes"]["removed"], 0)
+
     def test_ui_exposes_interactive_graph(self):
         status, text, _ = self.request("GET", "/")
         self.assertEqual(status, 200)
@@ -336,6 +392,10 @@ class ApiTests(unittest.TestCase):
         self.assertIn("export svg", text)
         self.assertIn("export png", text)
         self.assertIn("XMLSerializer", text)
+        self.assertIn('id="browse-analyze"', text)
+        self.assertIn("simulateForce", text)
+        self.assertIn("dragenter", text)
+        self.assertIn("/upload", text)
         self.assertIn("addEventListener(\"wheel\"", text)
         self.assertIn("http://www.w3.org/2000/svg", text)
         self.assertNotIn("d3", text)

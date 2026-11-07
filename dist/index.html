@@ -17,6 +17,7 @@ th{background:#f7f7f7}.muted{color:#666}
 .legend{margin:.3rem 0;font-size:12px;color:#555}
 .legend span{display:inline-block;margin-right:.9rem}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.3rem}
+.drop{display:flex;flex-direction:column;gap:.25rem}.drop.dragover textarea,.row.dragover textarea{outline:2px dashed #3b82f6}
 .pill{display:inline-block;padding:.1rem .55rem;border-radius:999px;font-size:12px;font-weight:600}
 .ok{background:#d7f5dd;color:#12602a}.bad{background:#ffe0e0;color:#8a1c1c}
 </style></head><body>
@@ -28,16 +29,27 @@ th{background:#f7f7f7}.muted{color:#666}
   <span class="muted">desktop app fills this automatically; otherwise paste the token from %LOCALAPPDATA%/ReverseSuite/session.json</span>
 </div>
 <h2>Analyze</h2>
-<div class="row">
-  <textarea id="path" rows="1" placeholder="Absolute path (C:/...) or URL (https://...)"></textarea>
+<div class="row" id="drop-analyze">
+  <textarea id="path" rows="1" placeholder="Absolute path, URL — or drop a file here"></textarea>
+  <button id="browse-analyze" type="button">browse…</button>
+  <input id="file-analyze" type="file" accept=".exe,.dll,.bin" hidden>
   <button id="run">analyze</button>
 </div>
+<p class="muted" id="uploadstate"></p>
 <p class="muted" id="roothint"></p>
 <pre id="out">ready</pre>
 <h2>Diff &amp; Report</h2>
-<div class="row">
-  <textarea id="left" rows="1" placeholder="left binary path"></textarea>
-  <textarea id="right" rows="1" placeholder="right binary path"></textarea>
+<div class="row" id="drop-diff">
+  <div class="drop">
+    <textarea id="left" rows="1" placeholder="left binary path"></textarea>
+    <button id="browse-left" type="button">browse…</button>
+    <input id="file-left" type="file" accept=".exe,.dll,.bin" hidden>
+  </div>
+  <div class="drop">
+    <textarea id="right" rows="1" placeholder="right binary path"></textarea>
+    <button id="browse-right" type="button">browse…</button>
+    <input id="file-right" type="file" accept=".exe,.dll,.bin" hidden>
+  </div>
   <label><input id="thunks" type="checkbox"> ignore thunks</label>
 </div>
 <div class="row">
@@ -104,7 +116,7 @@ th{background:#f7f7f7}.muted{color:#666}
 
   $("run").onclick = function () {
     $("out").textContent = "working...";
-    call("/analyze", { path: $("path").value.trim() }).then(function (text) {
+    call("/analyze", { path: $("path").value.trim(), upload_id: uploaded.analyze || "" }).then(function (text) {
       var doc = JSON.parse(text);
       window.__lastAnalyze = doc;
       var lines = [];
@@ -137,6 +149,7 @@ th{background:#f7f7f7}.muted{color:#666}
     $("summary").textContent = "";
     $("tables").innerHTML = "";
     call("/diff", { left_path: $("left").value.trim(), right_path: $("right").value.trim(),
+                    left_upload_id: uploaded.left || "", right_upload_id: uploaded.right || "",
                     ignore_thunks: $("thunks").checked }).then(function (text) {
       var doc = JSON.parse(text);
       window.__lastDiff = doc;
@@ -247,9 +260,59 @@ th{background:#f7f7f7}.muted{color:#666}
     });
 
     current = { nodes: nodes, edges: edges };
+    simulateForce(nodes, edges, width, height);
     layoutNodes();
     applyView();
     $("gstate").textContent = note || (nodes.length + " nodes / " + edges.length + " edges");
+  }
+
+  function simulateForce(nodes, edges, width, height) {
+    if (nodes.length < 2) return;
+    var iterations = 220;
+    var area = width * height;
+    var k = Math.sqrt(area / nodes.length) * 0.55;
+    var byAddr = {};
+    nodes.forEach(function (n) { byAddr[n.addr] = n; });
+    var links = [];
+    edges.forEach(function (e) {
+      var a = byAddr[e.caller];
+      var b = e.callee === null || e.callee === undefined ? null : byAddr[e.callee];
+      if (a && b && a !== b) links.push([a, b]);
+    });
+    for (var step = 0; step < iterations; step++) {
+      var disp = {};
+      nodes.forEach(function (n) { disp[n.addr] = { x: 0, y: 0 }; });
+      for (var i = 0; i < nodes.length; i++) {
+        for (var j = i + 1; j < nodes.length; j++) {
+          var a = nodes[i], b = nodes[j];
+          var dx = a.x - b.x, dy = a.y - b.y;
+          var dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          var force = (k * k) / dist;
+          var ux = dx / dist, uy = dy / dist;
+          disp[a.addr].x += ux * force; disp[a.addr].y += uy * force;
+          disp[b.addr].x -= ux * force; disp[b.addr].y -= uy * force;
+        }
+      }
+      links.forEach(function (pair) {
+        var a = pair[0], b = pair[1];
+        var dx = a.x - b.x, dy = a.y - b.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        var force = (dist * dist) / k;
+        var ux = dx / dist, uy = dy / dist;
+        disp[a.addr].x -= ux * force; disp[a.addr].y -= uy * force;
+        disp[b.addr].x += ux * force; disp[b.addr].y += uy * force;
+      });
+      var cx = width / 2, cy = height / 2;
+      nodes.forEach(function (n) {
+        var d = disp[n.addr];
+        var len = Math.sqrt(d.x * d.x + d.y * d.y) || 0.01;
+        var move = Math.min(len, 30);
+        n.x += (d.x / len) * move + (cx - n.x) * 0.02;
+        n.y += (d.y / len) * move + (cy - n.y) * 0.02;
+        n.x = Math.max(24, Math.min(width - 24, n.x));
+        n.y = Math.max(24, Math.min(height - 24, n.y));
+      });
+    }
   }
 
   function layoutNodes() {
@@ -375,6 +438,73 @@ th{background:#f7f7f7}.muted{color:#666}
     setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
   }
 
+  // --- file picker and drag & drop (uploads bytes; no trusted local paths) ---
+  var uploaded = { analyze: null, left: null, right: null };
+
+  function uploadFile(file) {
+    var headers = { "Content-Type": "application/octet-stream",
+                    "X-Filename": encodeURIComponent(file.name),
+                    "Authorization": "Bearer " + token() };
+    return fetch("/upload", { method: "POST", headers: headers, body: file })
+      .then(function (res) {
+        return res.text().then(function (text) {
+          if (!res.ok) throw new Error(res.status + " " + text.slice(0, 160));
+          return JSON.parse(text);
+        });
+      });
+  }
+
+  function wirePicker(kind, buttonId, inputId, textareaId) {
+    var input = $(inputId);
+    var area = $(textareaId);
+    $(buttonId).onclick = function () { input.click(); };
+    input.onchange = function () {
+      if (!input.files || !input.files.length) return;
+      var file = input.files[0];
+      area.value = file.name;
+      $("uploadstate").textContent = "uploading " + file.name + "…";
+      uploadFile(file).then(function (info) {
+        uploaded[kind] = info.id;
+        $("uploadstate").textContent = "uploaded " + file.name + " (" + info.size + " bytes)";
+      }).catch(function (err) {
+        uploaded[kind] = null;
+        $("uploadstate").textContent = "upload failed: " + err.message;
+      });
+    };
+    area.addEventListener("input", function () { uploaded[kind] = null; });
+  }
+
+  function wireDrop(zoneId, kind, textareaId) {
+    var zone = $(zoneId);
+    ["dragenter", "dragover"].forEach(function (name) {
+      zone.addEventListener(name, function (ev) { ev.preventDefault(); zone.classList.add("dragover"); });
+    });
+    ["dragleave", "drop"].forEach(function (name) {
+      zone.addEventListener(name, function (ev) {
+        if (name === "dragleave") { zone.classList.remove("dragover"); return; }
+        ev.preventDefault();
+        zone.classList.remove("dragover");
+        var files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+        if (!files.length) return;
+        var file = files[0];
+        $(textareaId).value = file.name;
+        $("uploadstate").textContent = "uploading " + file.name + "…";
+        uploadFile(file).then(function (info) {
+          uploaded[kind] = info.id;
+          $("uploadstate").textContent = "uploaded " + file.name + " (" + info.size + " bytes)";
+        }).catch(function (err) {
+          uploaded[kind] = null;
+          $("uploadstate").textContent = "upload failed: " + err.message;
+        });
+      });
+    });
+  }
+
+  wirePicker("analyze", "browse-analyze", "file-analyze", "path");
+  wirePicker("left", "browse-left", "file-left", "left");
+  wirePicker("right", "browse-right", "file-right", "right");
+  wireDrop("drop-analyze", "analyze", "path");
+  wireDrop("drop-diff", "left", "left");
   $("gexport").onclick = function () {
     if (!current.nodes.length) { $("gstate").textContent = "nothing to export"; return; }
     var clone = snapshotSvg();

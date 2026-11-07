@@ -25,10 +25,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import urlsplit
+import urllib.parse
 
 from . import callgraph, diff as diff_mod, functions, loader, report as report_mod, rules, schema, strings
 
 MAX_BODY = 64 * 1024
+MAX_UPLOAD = 256 * 1024 * 1024
+UPLOAD_TTL_S = 900.0
 URL_MAX_BYTES = 256 * 1024 * 1024
 URL_TIMEOUT = 30
 URL_HEADERS = {"User-Agent": "ReverseSuite/0.1 (+http://127.0.0.1)"}
@@ -170,6 +173,10 @@ def url_allowed(raw: str, allow_private: bool = False) -> bool:
     return True
 
 
+def new_upload_id() -> str:
+    return secrets.token_hex(16)
+
+
 def is_url(raw: str) -> bool:
     return raw.lower().startswith(("http://", "https://"))
 
@@ -234,6 +241,7 @@ th{background:#f7f7f7}.muted{color:#666}
 .legend{margin:.3rem 0;font-size:12px;color:#555}
 .legend span{display:inline-block;margin-right:.9rem}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.3rem}
+.drop{display:flex;flex-direction:column;gap:.25rem}.drop.dragover textarea,.row.dragover textarea{outline:2px dashed #3b82f6}
 .pill{display:inline-block;padding:.1rem .55rem;border-radius:999px;font-size:12px;font-weight:600}
 .ok{background:#d7f5dd;color:#12602a}.bad{background:#ffe0e0;color:#8a1c1c}
 </style></head><body>
@@ -245,16 +253,27 @@ th{background:#f7f7f7}.muted{color:#666}
   <span class="muted">desktop app fills this automatically; otherwise paste the token from %LOCALAPPDATA%/ReverseSuite/session.json</span>
 </div>
 <h2>Analyze</h2>
-<div class="row">
-  <textarea id="path" rows="1" placeholder="Absolute path (C:/...) or URL (https://...)"></textarea>
+<div class="row" id="drop-analyze">
+  <textarea id="path" rows="1" placeholder="Absolute path, URL — or drop a file here"></textarea>
+  <button id="browse-analyze" type="button">browse…</button>
+  <input id="file-analyze" type="file" accept=".exe,.dll,.bin" hidden>
   <button id="run">analyze</button>
 </div>
+<p class="muted" id="uploadstate"></p>
 <p class="muted" id="roothint"></p>
 <pre id="out">ready</pre>
 <h2>Diff &amp; Report</h2>
-<div class="row">
-  <textarea id="left" rows="1" placeholder="left binary path"></textarea>
-  <textarea id="right" rows="1" placeholder="right binary path"></textarea>
+<div class="row" id="drop-diff">
+  <div class="drop">
+    <textarea id="left" rows="1" placeholder="left binary path"></textarea>
+    <button id="browse-left" type="button">browse…</button>
+    <input id="file-left" type="file" accept=".exe,.dll,.bin" hidden>
+  </div>
+  <div class="drop">
+    <textarea id="right" rows="1" placeholder="right binary path"></textarea>
+    <button id="browse-right" type="button">browse…</button>
+    <input id="file-right" type="file" accept=".exe,.dll,.bin" hidden>
+  </div>
   <label><input id="thunks" type="checkbox"> ignore thunks</label>
 </div>
 <div class="row">
@@ -321,7 +340,7 @@ th{background:#f7f7f7}.muted{color:#666}
 
   $("run").onclick = function () {
     $("out").textContent = "working...";
-    call("/analyze", { path: $("path").value.trim() }).then(function (text) {
+    call("/analyze", { path: $("path").value.trim(), upload_id: uploaded.analyze || "" }).then(function (text) {
       var doc = JSON.parse(text);
       window.__lastAnalyze = doc;
       var lines = [];
@@ -354,6 +373,7 @@ th{background:#f7f7f7}.muted{color:#666}
     $("summary").textContent = "";
     $("tables").innerHTML = "";
     call("/diff", { left_path: $("left").value.trim(), right_path: $("right").value.trim(),
+                    left_upload_id: uploaded.left || "", right_upload_id: uploaded.right || "",
                     ignore_thunks: $("thunks").checked }).then(function (text) {
       var doc = JSON.parse(text);
       window.__lastDiff = doc;
@@ -464,9 +484,59 @@ th{background:#f7f7f7}.muted{color:#666}
     });
 
     current = { nodes: nodes, edges: edges };
+    simulateForce(nodes, edges, width, height);
     layoutNodes();
     applyView();
     $("gstate").textContent = note || (nodes.length + " nodes / " + edges.length + " edges");
+  }
+
+  function simulateForce(nodes, edges, width, height) {
+    if (nodes.length < 2) return;
+    var iterations = 220;
+    var area = width * height;
+    var k = Math.sqrt(area / nodes.length) * 0.55;
+    var byAddr = {};
+    nodes.forEach(function (n) { byAddr[n.addr] = n; });
+    var links = [];
+    edges.forEach(function (e) {
+      var a = byAddr[e.caller];
+      var b = e.callee === null || e.callee === undefined ? null : byAddr[e.callee];
+      if (a && b && a !== b) links.push([a, b]);
+    });
+    for (var step = 0; step < iterations; step++) {
+      var disp = {};
+      nodes.forEach(function (n) { disp[n.addr] = { x: 0, y: 0 }; });
+      for (var i = 0; i < nodes.length; i++) {
+        for (var j = i + 1; j < nodes.length; j++) {
+          var a = nodes[i], b = nodes[j];
+          var dx = a.x - b.x, dy = a.y - b.y;
+          var dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          var force = (k * k) / dist;
+          var ux = dx / dist, uy = dy / dist;
+          disp[a.addr].x += ux * force; disp[a.addr].y += uy * force;
+          disp[b.addr].x -= ux * force; disp[b.addr].y -= uy * force;
+        }
+      }
+      links.forEach(function (pair) {
+        var a = pair[0], b = pair[1];
+        var dx = a.x - b.x, dy = a.y - b.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        var force = (dist * dist) / k;
+        var ux = dx / dist, uy = dy / dist;
+        disp[a.addr].x -= ux * force; disp[a.addr].y -= uy * force;
+        disp[b.addr].x += ux * force; disp[b.addr].y += uy * force;
+      });
+      var cx = width / 2, cy = height / 2;
+      nodes.forEach(function (n) {
+        var d = disp[n.addr];
+        var len = Math.sqrt(d.x * d.x + d.y * d.y) || 0.01;
+        var move = Math.min(len, 30);
+        n.x += (d.x / len) * move + (cx - n.x) * 0.02;
+        n.y += (d.y / len) * move + (cy - n.y) * 0.02;
+        n.x = Math.max(24, Math.min(width - 24, n.x));
+        n.y = Math.max(24, Math.min(height - 24, n.y));
+      });
+    }
   }
 
   function layoutNodes() {
@@ -592,6 +662,73 @@ th{background:#f7f7f7}.muted{color:#666}
     setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
   }
 
+  // --- file picker and drag & drop (uploads bytes; no trusted local paths) ---
+  var uploaded = { analyze: null, left: null, right: null };
+
+  function uploadFile(file) {
+    var headers = { "Content-Type": "application/octet-stream",
+                    "X-Filename": encodeURIComponent(file.name),
+                    "Authorization": "Bearer " + token() };
+    return fetch("/upload", { method: "POST", headers: headers, body: file })
+      .then(function (res) {
+        return res.text().then(function (text) {
+          if (!res.ok) throw new Error(res.status + " " + text.slice(0, 160));
+          return JSON.parse(text);
+        });
+      });
+  }
+
+  function wirePicker(kind, buttonId, inputId, textareaId) {
+    var input = $(inputId);
+    var area = $(textareaId);
+    $(buttonId).onclick = function () { input.click(); };
+    input.onchange = function () {
+      if (!input.files || !input.files.length) return;
+      var file = input.files[0];
+      area.value = file.name;
+      $("uploadstate").textContent = "uploading " + file.name + "…";
+      uploadFile(file).then(function (info) {
+        uploaded[kind] = info.id;
+        $("uploadstate").textContent = "uploaded " + file.name + " (" + info.size + " bytes)";
+      }).catch(function (err) {
+        uploaded[kind] = null;
+        $("uploadstate").textContent = "upload failed: " + err.message;
+      });
+    };
+    area.addEventListener("input", function () { uploaded[kind] = null; });
+  }
+
+  function wireDrop(zoneId, kind, textareaId) {
+    var zone = $(zoneId);
+    ["dragenter", "dragover"].forEach(function (name) {
+      zone.addEventListener(name, function (ev) { ev.preventDefault(); zone.classList.add("dragover"); });
+    });
+    ["dragleave", "drop"].forEach(function (name) {
+      zone.addEventListener(name, function (ev) {
+        if (name === "dragleave") { zone.classList.remove("dragover"); return; }
+        ev.preventDefault();
+        zone.classList.remove("dragover");
+        var files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+        if (!files.length) return;
+        var file = files[0];
+        $(textareaId).value = file.name;
+        $("uploadstate").textContent = "uploading " + file.name + "…";
+        uploadFile(file).then(function (info) {
+          uploaded[kind] = info.id;
+          $("uploadstate").textContent = "uploaded " + file.name + " (" + info.size + " bytes)";
+        }).catch(function (err) {
+          uploaded[kind] = null;
+          $("uploadstate").textContent = "upload failed: " + err.message;
+        });
+      });
+    });
+  }
+
+  wirePicker("analyze", "browse-analyze", "file-analyze", "path");
+  wirePicker("left", "browse-left", "file-left", "left");
+  wirePicker("right", "browse-right", "file-right", "right");
+  wireDrop("drop-analyze", "analyze", "path");
+  wireDrop("drop-diff", "left", "left");
   $("gexport").onclick = function () {
     if (!current.nodes.length) { $("gstate").textContent = "nothing to export"; return; }
     var clone = snapshotSvg();
@@ -658,6 +795,38 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
     class Handler(BaseHTTPRequestHandler):
         server_version = "ReverseSuite/0.3"
         buckets: dict = {}
+        uploads: dict = {}
+
+        def _upload_dir(self) -> Path:
+            return Path(self.server.upload_dir)
+
+        def _store_upload(self, body: bytes, name_hint: str) -> str:
+            upload_id = new_upload_id()
+            safe = "".join(ch for ch in (name_hint or "upload.bin") if ch.isalnum() or ch in "-_.")[:64]
+            target = self._upload_dir() / ("%s-%s" % (upload_id, safe or "upload.bin"))
+            target.write_bytes(body)
+            self.uploads[upload_id] = (target, time.monotonic())
+            return upload_id
+
+        def _resolve_upload(self, upload_id: str):
+            entry = self.uploads.get(upload_id or "")
+            if not entry:
+                return None
+            path, stamp = entry
+            if time.monotonic() - stamp > UPLOAD_TTL_S or not path.exists():
+                self.uploads.pop(upload_id, None)
+                return None
+            return path
+
+        def _purge_uploads(self) -> None:
+            now = time.monotonic()
+            for key, (path, stamp) in list(self.uploads.items()):
+                if now - stamp > UPLOAD_TTL_S:
+                    self.uploads.pop(key, None)
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):
@@ -760,6 +929,20 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 length = 0
+            route = self.path.split("?")[0]
+            if route == "/upload":
+                if length <= 0 or length > MAX_UPLOAD:
+                    self._send(400, {"error": "bad_upload_size"})
+                    return
+                body = self.rfile.read(length)
+                if len(body) < 2 or body[:2] != b"MZ":
+                    self._send(400, {"error": "not_a_pe_file"})
+                    return
+                name = urllib.parse.unquote(self.headers.get("X-Filename") or "upload.bin")
+                upload_id = self._store_upload(body, name)
+                self._purge_uploads()
+                self._send(200, {"id": upload_id, "size": len(body), "name": name})
+                return
             if length <= 0 or length > MAX_BODY:
                 self._send(400, {"error": "bad_body"})
                 return
@@ -771,9 +954,16 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
             route = self.path.split("?")[0]
             if route == "/analyze":
                 raw_path = str(payload.get("path", "")).strip()
+                upload_id = str(payload.get("upload_id", "")).strip()
                 tempdir = None
                 try:
-                    if is_url(raw_path):
+                    if upload_id:
+                        target = self._resolve_upload(upload_id)
+                        if target is None:
+                            self._send(400, {"error": "upload_not_found"})
+                            return
+                        raw_path = target.name
+                    elif is_url(raw_path):
                         if not url_allowed(raw_path, allow_private_urls):
                             self._send(400, {"error": "url_host_not_allowed"})
                             return
@@ -806,8 +996,16 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                 if route == "/report" and fmt not in ("html", "md", "markdown"):
                     self._send(400, {"error": "bad_format"})
                     return
-                left, left_err = resolve_path(root, str(payload.get("left_path", "")).strip())
-                right, right_err = resolve_path(root, str(payload.get("right_path", "")).strip())
+                left_upload = str(payload.get("left_upload_id", "")).strip()
+                right_upload = str(payload.get("right_upload_id", "")).strip()
+                if left_upload or right_upload:
+                    left = self._resolve_upload(left_upload)
+                    right = self._resolve_upload(right_upload)
+                    left_err = None if left is not None else "upload_not_found"
+                    right_err = None if right is not None else "upload_not_found"
+                else:
+                    left, left_err = resolve_path(root, str(payload.get("left_path", "")).strip())
+                    right, right_err = resolve_path(root, str(payload.get("right_path", "")).strip())
                 if left is None or right is None:
                     code = 403 if "path_not_allowed" in (left_err, right_err) else 400
                     self._send(code, {"error": left_err or right_err})
@@ -851,6 +1049,8 @@ def serve(root: Optional[Path] = None, token: Optional[str] = None, port: int = 
     token = token or new_token()
     server = ThreadingHTTPServer(("127.0.0.1", port),
                                  make_handler(token, root, workers, rate_limit, allow_private_urls))
+    upload_dir = tempfile.mkdtemp(prefix="reversesuite-up-")
+    server.upload_dir = upload_dir
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, token, thread

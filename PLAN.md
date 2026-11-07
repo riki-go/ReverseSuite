@@ -555,3 +555,7 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - ไม่ได้นับ edge จาก provenance ที่เก่ากว่า 2 คำสั่ง เพราะทดลอง window 8 แล้วพบ false positive (เช่น `call r9` ที่ค่า r9 ถูก store ไม่ได้ถูกโหลด)
   - unittest 137/137 OK; MSI `0.2.0` rebuild 15:16 → 14,299,136 B sha256 fd2723e67375880019a220fa09588359da59c54244185fc90eaf64140f72ed7a
 - v6.0 (Release 0.2.0, feature freeze): รวมทุก AC ที่ปิดแล้วไว้ใน §0a, ประกาศหยุดเพิ่มฟีเจอร์ชั่วคราวเพื่อรอ UAT. ไม่แตะ M6 เต็มรูปแบบ (vtable/value-set) ตามคำสั่ง
+- v6.0.1 (UX hotfix ตามผล UAT):
+  - **Browse + Drag & Drop** — เพิ่ม `POST /upload` (รับ bytes, จำกัด 256 MB, ตรวจ magic `MZ`, เก็บใน temp พร้อม TTL 15 นาที) และให้ `/analyze`, `/diff`, `/report` รับ `upload_id` / `left_upload_id` / `right_upload_id`; UI มีปุ่ม `browse…` (input file) และ drop zone ทั้ง Analyze และ Diff — **ไม่ต้องเปิด Tauri IPC ให้ origin ของ API** (ปลอดภัยกว่าการใช้ dialog plugin)
+  - **Force-directed layout** — แทนการวางวงกลมด้วย simulation 220 รอบ: แรงผลัก k²/d ระหว่างทุกคู่, แรงดึง d²/k ตาม edge, แรงดึงเข้า centre 2% ต่อรอบ, clamp ขอบ 24 px → แก้ hairball ของกราฟ 93 nodes/296 edges
+  - unittest **141/141 OK**; MSI rebuild 23:52 → 14,303,232 B sha256 9d09f8aff32d93a7f3e69240b5aa923ce336ad06802fc8f1f04783e1d81acf9c
