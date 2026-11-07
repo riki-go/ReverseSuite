@@ -12,6 +12,7 @@ import shutil
 
 from . import functions as functions_mod
 from . import callgraph as callgraph_mod
+from . import diff as diff_mod
 from . import strings as strings_mod
 from . import cache as cache_mod, disasm, loader, schema
 
@@ -42,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--min-length", type=int, default=strings_mod.MIN_LENGTH)
     st.add_argument("--workers", type=int, default=6, help="worker processes for the xref pass")
     st.add_argument("--no-xref", action="store_true", help="skip string xref resolution")
+    df = sub.add_parser("diff", help="diff two call graphs (JSON docs or PE files)")
+    df.add_argument("left")
+    df.add_argument("right")
+    df.add_argument("--json", action="store_true", help="emit JSON on stdout")
+    df.add_argument("--ignore-thunks", action="store_true", help="drop thunk edges before diffing")
     cg = sub.add_parser("calls", help="build the call graph (direct/tail/thunk edges)")
     cg.add_argument("path")
     cg.add_argument("--json", action="store_true", help="emit JSON on stdout")
@@ -52,6 +58,39 @@ def main(argv: list[str] | None = None) -> int:
     fn.add_argument("--max-functions", type=int, default=200000)
     args = parser.parse_args(argv)
 
+    if args.cmd == "diff":
+        def load_doc(path):
+            if path.lower().endswith(".json"):
+                with open(path, "r", encoding="utf-8") as fh:
+                    return json.load(fh)
+            with open(path, "rb") as fh:
+                return callgraph_mod.build(fh.read()).as_dict()
+
+        try:
+            left = load_doc(args.left)
+            right = load_doc(args.right)
+        except Exception as exc:
+            print(f"cannot load inputs: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        result = diff_mod.diff_graphs(left, right, ignore_thunks=args.ignore_thunks)
+        if args.json:
+            sys.stdout.write(json.dumps(result.as_dict()) + chr(10))
+        else:
+            s = result.summary()
+            print("nodes  +%d -%d ~%d(moved) ~%d(similar)" % (
+                s["nodes"]["added"], s["nodes"]["removed"], s["nodes"]["moved"], s["nodes"]["similar"]))
+            print("edges  +%d -%d =%d" % (s["edges"]["added"], s["edges"]["removed"], s["edges"]["unchanged"]))
+            for node in result.added_nodes[:5]:
+                print("  + node 0x%x size=%d" % (node.address, node.size))
+            for node in result.removed_nodes[:5]:
+                print("  - node 0x%x size=%d" % (node.address, node.size))
+            for node, to in result.moved_nodes[:5]:
+                print("  ~ node 0x%x -> 0x%x" % (node.address, to))
+            for edge in result.added_edges[:5]:
+                print("  + edge 0x%x -> 0x%x %s" % (edge.caller, edge.callee or 0, edge.kind))
+            for edge in result.removed_edges[:5]:
+                print("  - edge 0x%x -> 0x%x %s" % (edge.caller, edge.callee or 0, edge.kind))
+        return EXIT_OK
     if args.cmd == "calls":
         try:
             with open(args.path, "rb") as fh:

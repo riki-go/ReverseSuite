@@ -7,6 +7,7 @@ Each edge records the call site so provenance survives into findings.
 from __future__ import annotations
 
 import bisect
+import hashlib
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -25,6 +26,16 @@ MAX_GRAPH_TEXT_BYTES = functions.MAX_FUNCTION_TEXT_BYTES
 
 
 @dataclass(frozen=True)
+class NodeInfo:
+    start: int
+    size: int
+    sha256: str
+
+    def as_dict(self) -> dict:
+        return {"start": self.start, "size": self.size, "sha256": self.sha256}
+
+
+@dataclass(frozen=True)
 class CallEdge:
     caller: int
     callee: Optional[int]
@@ -39,6 +50,7 @@ class CallEdge:
 class CallGraph:
     nodes: Tuple[int, ...] = ()
     edges: Tuple[CallEdge, ...] = ()
+    node_info: Tuple[NodeInfo, ...] = ()
     indirect_calls: int = 0
     unresolved_calls: int = 0
     tail_calls: int = 0
@@ -54,6 +66,7 @@ class CallGraph:
     def as_dict(self) -> dict:
         return {
             "nodes": list(self.nodes),
+            "node_info": [n.as_dict() for n in self.node_info],
             "edges": [e.as_dict() for e in self.edges],
             "indirect_calls": self.indirect_calls,
             "unresolved_calls": self.unresolved_calls,
@@ -99,6 +112,11 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
     funcs = sorted(funcs, key=lambda f: f.start)
     nodes = tuple(f.start for f in funcs)
     node_set = set(nodes)
+    infos = []
+    for fn in funcs:
+        off = fn.start - base
+        body = text[off:off + fn.size] if 0 <= off < len(text) else b""
+        infos.append(NodeInfo(fn.start, fn.size, hashlib.sha256(body).hexdigest()))
     spans = [(f.start, f.start + max(f.size, 1)) for f in funcs]
     starts = [s for s, _ in spans]
     thunks = _thunks(text, funcs, base)
@@ -153,8 +171,9 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
             edges.append(CallEdge(caller, target, insn.address, KIND_TAIL))
             tails += 1
     edges.sort(key=lambda e: (e.caller, e.site, e.callee or 0))
-    return CallGraph(nodes=nodes, edges=tuple(edges), indirect_calls=indirect,
-                     unresolved_calls=unresolved, tail_calls=tails, thunk_calls=thunked)
+    return CallGraph(nodes=nodes, edges=tuple(edges), node_info=tuple(infos),
+                     indirect_calls=indirect, unresolved_calls=unresolved,
+                     tail_calls=tails, thunk_calls=thunked)
 
 
 def to_findings(graph: CallGraph):

@@ -61,6 +61,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(len(doc["edges"]), 127)
         self.assertEqual(doc["indirect_calls"], 35)
 
+    def test_diff_same_file_is_empty(self):
+        code, out, err = run(["diff", "fixtures/frozen/b.exe", "fixtures/frozen/b.exe"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("nodes  +0 -0 ~0(moved) ~0(similar)", out)
+        self.assertIn("edges  +0 -0 =127", out)
+
+    def test_diff_json_output(self):
+        code, out, err = run(["diff", "fixtures/frozen/b.exe", "fixtures/frozen/b.exe", "--json"])
+        self.assertEqual(code, 0, err)
+        doc = json.loads(out)
+        self.assertEqual(doc["summary"]["edges"]["unchanged"], 127)
+        self.assertEqual(doc["summary"]["nodes"]["added"], 0)
+
     def test_missing_subcommand_is_usage_error(self):
         code, out, err = run([])
         self.assertEqual(code, 4)
