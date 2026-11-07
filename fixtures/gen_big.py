@@ -1,19 +1,51 @@
-# codegen for d.exe: many real functions (no padding)
-import sys
+"""Generate synthetic C code split across translation units."""
+from __future__ import annotations
 
-def main(count: int, out_path: str) -> None:
-    with open(out_path, 'w', encoding='utf-8') as f:
-        f.write('#include <stdio.h>' + chr(10))
-        for i in range(count):
-            f.write(f'__declspec(dllexport) int fn_{i}(int x) {{ return (x * {i + 1}) ^ {i}; }}' + chr(10))
-        f.write('int main(void) {' + chr(10))
-        f.write('  int acc = 0;' + chr(10))
-        f.write('  for (int i = 0; i < ' + str(count) + '; i++) acc += (int)(i & 1);' + chr(10))
-        f.write('  printf("%d\\n", acc);' + chr(10))
-        f.write('  return 0;' + chr(10))
-        f.write('}' + chr(10))
+import argparse
+from pathlib import Path
 
-if __name__ == '__main__':
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
-    out = sys.argv[2] if len(sys.argv) > 2 else 'src/big.c'
-    main(n, out)
+
+def write_part(path: Path, start: int, count: int) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as f:
+        f.write("#include <stdio.h>\n")
+        for i in range(start, start + count):
+            f.write(f"__declspec(noinline) int fn_{i}(int x) {{ return (x * {i + 1}) ^ {i}; }}\n")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--parts", type=int, default=10)
+    ap.add_argument("--total", type=int, default=2023000)
+    ap.add_argument("--outdir", default="src")
+    ap.add_argument("--prefix", default="big_part")
+    args = ap.parse_args()
+
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    per = args.total // args.parts
+    files = []
+    for p in range(args.parts):
+        start = p * per
+        good = per if p < args.parts - 1 else args.total - start
+        name = f"{args.prefix}_{p + 1:02d}.c"
+        write_part(outdir / name, start, good)
+        files.append(name)
+
+    main_c = outdir / "big_main.c"
+    with main_c.open("w", encoding="utf-8", newline="\n") as f:
+        f.write("#include <stdio.h>\n")
+        f.write("int main(void) { printf(\"%d\\n\", 0); return 0; }\n")
+
+    all_c = outdir / f"{args.prefix}_all.c"
+    with all_c.open("w", encoding="utf-8", newline="\n") as f:
+        for name in files:
+            f.write(f'#include "{name}"\n')
+        f.write('#include "big_main.c"\n')
+
+    total_bytes = sum((outdir / n).stat().st_size for n in files)
+    print(f"parts={len(files)} per={per} total_funcs={args.total} bytes={total_bytes}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0.0",
+  "fixture": {
+    "file": "fixtures/out/d.exe",
+    "exe_bytes": 74582016,
+    "text_bytes": 74531840,
+    "parts": 46,
+    "functions": 2326450
+  },
+  "s1b_parallel": {
+    "workers": 6,
+    "instructions": 38447906,
+    "wall_s": 19.481,
+    "instr_per_s": 1973566,
+    "worker_peak_rss_mb": [
+      518.3,
+      518.4,
+      518.5,
+      518.3,
+      518.4,
+      518.4
+    ],
+    "sum_worker_rss_mb": 3110.3
+  },
+  "ac7a_single_61mb": {
+    "text_bytes": 64821760,
+    "instructions": 36434211,
+    "wall_s": 69.672,
+    "peak_rss_mb": 628.5,
+    "instr_per_s": 522942
+  },
+  "ac7b_e2e_61mb": {
+    "wall_s": 143.506,
+    "peak_rss_mb": 630.3,
+    "jsonl_raw_bytes": 1331640649,
+    "jsonl_gzip_bytes": 118947545,
+    "raw_ratio_over_code": 20.543,
+    "gzip_over_raw_pct": 8.93
+  },
+  "notes": [
+    "70MB target met at 71.07MB .text (46 parts, 2,326,450 functions)",
+    "parallel disasm 6 workers passes 45s/60s gate at 19.5s",
+    "per-worker RSS 518MB (under 1GB); aggregate 3.11GB",
+    "E2E numbers measured on the earlier 61.8MB build (64,821,760 B .text)"
+  ]
+}
