@@ -69,3 +69,4 @@ register(Rule("pe.function.discover", "function bounds from CFG-lite recursive d
 register(Rule("pe.string.ascii", "printable ASCII string"))
 register(Rule("pe.string.utf16le", "UTF-16LE string"))
 register(Rule("pe.string.xref", "code reference to a string"))
+register(Rule("pe.callgraph.edge", "resolved caller -> callee edge"))

@@ -11,6 +11,7 @@ import hashlib
 import shutil
 
 from . import functions as functions_mod
+from . import callgraph as callgraph_mod
 from . import strings as strings_mod
 from . import cache as cache_mod, disasm, loader, schema
 
@@ -41,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--min-length", type=int, default=strings_mod.MIN_LENGTH)
     st.add_argument("--workers", type=int, default=6, help="worker processes for the xref pass")
     st.add_argument("--no-xref", action="store_true", help="skip string xref resolution")
+    cg = sub.add_parser("calls", help="build the call graph (direct/tail/thunk edges)")
+    cg.add_argument("path")
+    cg.add_argument("--json", action="store_true", help="emit JSON on stdout")
     fn = sub.add_parser("functions", help="discover function starts heuristically")
     fn.add_argument("path")
     fn.add_argument("--json", action="store_true", help="emit JSON array on stdout")
@@ -48,6 +52,34 @@ def main(argv: list[str] | None = None) -> int:
     fn.add_argument("--max-functions", type=int, default=200000)
     args = parser.parse_args(argv)
 
+    if args.cmd == "calls":
+        try:
+            with open(args.path, "rb") as fh:
+                data = fh.read()
+        except OSError as exc:
+            print(f"cannot read input: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        try:
+            graph = callgraph_mod.build(data)
+        except Exception as exc:
+            print(f"cannot build call graph: {exc}", file=sys.stderr)
+            return EXIT_FAILED
+        if graph.skipped:
+            print(f"call graph skipped: {graph.skipped}", file=sys.stderr)
+            return EXIT_DEGRADED
+        if args.json:
+            sys.stdout.write(json.dumps(graph.as_dict()) + chr(10))
+        else:
+            kinds = {}
+            for edge in graph.edges:
+                kinds[edge.kind] = kinds.get(edge.kind, 0) + 1
+            print("nodes %d edges %d (%s) indirect %d unresolved %d" % (
+                len(graph.nodes), len(graph.edges),
+                ", ".join("%s=%d" % (k, v) for k, v in sorted(kinds.items())) or "none",
+                graph.indirect_calls, graph.unresolved_calls))
+            for edge in graph.edges[:10]:
+                print("  0x%x -> 0x%x  %s @0x%x" % (edge.caller, edge.callee or 0, edge.kind, edge.site))
+        return EXIT_OK
     if args.cmd == "strings":
         try:
             with open(args.path, "rb") as fh:
@@ -171,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"internal error: {exc.__class__.__name__}", file=sys.stderr)
         return EXIT_INTERNAL
 
-    extra: dict = {"functions": 0, "strings": 0, "ascii": 0, "utf16le": 0, "with_xref": 0,
+    extra: dict = {"functions": 0, "strings": 0, "ascii": 0, "utf16le": 0, "with_xref": 0, "edges": 0, "indirect_calls": 0,
                    "xref_skipped": None}
     if result.status != "failed":
         try:
@@ -196,12 +228,15 @@ def main(argv: list[str] | None = None) -> int:
                     strings_mod.XREF_SKIP_TEXT_TOO_LARGE, "xref pass skipped", "info",
                     {"text_bytes": len(text), "cap": strings_mod.MAX_XREF_TEXT_BYTES,
                      "reason": reason}))
+            graph = callgraph_mod.build(data, funcs=found) if found else callgraph_mod.CallGraph()
             result.findings.extend(schema.enforce_rules(
-                functions_mod.to_findings(found) + strings_mod.to_findings(items)))
+                functions_mod.to_findings(found) + strings_mod.to_findings(items) + callgraph_mod.to_findings(graph)))
             extra = {"functions": len(found), "strings": len(items),
                      "ascii": sum(1 for s in items if s.encoding == "ascii"),
                      "utf16le": sum(1 for s in items if s.encoding == "utf16le"),
                      "with_xref": sum(1 for s in items if s.xrefs),
+                     "edges": len(graph.edges),
+                     "indirect_calls": graph.indirect_calls,
                      "xref_skipped": reason}
         except Exception as exc:
             result.status = "degraded"
@@ -224,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         print("status  %s" % result.status)
         print("findings %d  diagnostics %d" % (len(result.findings), len(result.diagnostics)))
         print("functions %d" % extra["functions"])
+        print("edges    %d  indirect_calls %d" % (extra["edges"], extra["indirect_calls"]))
         print("strings  %d (ascii=%d utf16le=%d) xref=%d%s" % (
             extra["strings"], extra["ascii"], extra["utf16le"], extra["with_xref"],
             " skipped=" + extra["xref_skipped"] if extra["xref_skipped"] else ""))
