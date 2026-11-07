@@ -183,6 +183,12 @@ table{border-collapse:collapse;margin:.5rem 0;width:100%}
 td,th{border:1px solid #ddd;padding:.2rem .5rem;text-align:left;font-family:ui-monospace,monospace;font-size:12px}
 th{background:#f7f7f7}.muted{color:#666}
 .row{display:flex;gap:.5rem;align-items:flex-start;flex-wrap:wrap;margin:.4rem 0}
+#graphwrap{background:#fafafa;border:1px solid #ddd;border-radius:6px;overflow:hidden;cursor:grab}
+#graphwrap svg{display:block;width:100%;height:380px}
+#graph text{font:10px ui-monospace,monospace;fill:#111;pointer-events:none}
+.legend{margin:.3rem 0;font-size:12px;color:#555}
+.legend span{display:inline-block;margin-right:.9rem}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.3rem}
 .pill{display:inline-block;padding:.1rem .55rem;border-radius:999px;font-size:12px;font-weight:600}
 .ok{background:#d7f5dd;color:#12602a}.bad{background:#ffe0e0;color:#8a1c1c}
 </style></head><body>
@@ -212,6 +218,15 @@ th{background:#f7f7f7}.muted{color:#666}
   <span id="diffstate" class="muted"></span>
 </div>
 <div id="summary"></div>
+<h2>Graph</h2>
+<div class="row">
+  <button id="gcall">view call graph</button>
+  <button id="gdiff">view diff graph</button>
+  <button id="gclear">clear</button>
+  <span id="gstate" class="muted"></span>
+</div>
+<p class="legend" id="glegend"></p>
+<div id="graphwrap"><svg id="graph" xmlns="http://www.w3.org/2000/svg"></svg></div>
 <div id="tables"></div>
 <script>
 (function () {
@@ -261,6 +276,7 @@ th{background:#f7f7f7}.muted{color:#666}
     $("out").textContent = "working...";
     call("/analyze", { path: $("path").value.trim() }).then(function (text) {
       var doc = JSON.parse(text);
+      window.__lastAnalyze = doc;
       var lines = [];
       lines.push("status: " + doc.status + "   size: " + doc.target.size + " bytes");
       lines.push("findings: " + doc.findings.length);
@@ -293,6 +309,7 @@ th{background:#f7f7f7}.muted{color:#666}
     call("/diff", { left_path: $("left").value.trim(), right_path: $("right").value.trim(),
                     ignore_thunks: $("thunks").checked }).then(function (text) {
       var doc = JSON.parse(text);
+      window.__lastDiff = doc;
       var s = doc.summary;
       $("summary").textContent = "nodes +" + s.nodes.added + " -" + s.nodes.removed +
         " ~" + s.nodes.moved + " moved ~" + s.nodes.similar + " similar | edges +" +
@@ -307,6 +324,204 @@ th{background:#f7f7f7}.muted{color:#666}
     });
   };
 
+  // --- interactive SVG graph (vanilla, CSP safe) ---
+  var NS = "http://www.w3.org/2000/svg";
+  var view = { scale: 1, tx: 0, ty: 0, drag: null, pan: null };
+  var current = { nodes: [], edges: [] };
+
+  function svgEl(name) { return document.createElementNS(NS, name); }
+
+  function clearGraph() {
+    var svg = $("graph");
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    current = { nodes: [], edges: [] };
+    $("gstate").textContent = "";
+    $("glegend").textContent = "";
+  }
+
+  function applyView() {
+    var world = $("gworld");
+    if (world) world.setAttribute("transform", "translate(" + view.tx + "," + view.ty + ") scale(" + view.scale + ")");
+  }
+
+  function legend(items) {
+    var box = $("glegend");
+    box.textContent = "";
+    items.forEach(function (pair) {
+      var wrap = document.createElement("span");
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = pair[1];
+      wrap.appendChild(dot);
+      wrap.appendChild(document.createTextNode(pair[0]));
+      box.appendChild(wrap);
+    });
+  }
+
+  function drawGraph(nodes, edges, colors, note) {
+    clearGraph();
+    var svg = $("graph");
+    var width = svg.clientWidth || 900;
+    var height = svg.clientHeight || 380;
+    var world = svgEl("g");
+    world.setAttribute("id", "gworld");
+    svg.appendChild(world);
+
+    var count = nodes.length;
+    var radius = Math.max(60, Math.min(width, height) / 2 - 45);
+    nodes.forEach(function (node, i) {
+      var angle = (2 * Math.PI * i) / Math.max(count, 1);
+      node.x = width / 2 + radius * Math.cos(angle);
+      node.y = height / 2 + radius * Math.sin(angle);
+      node.el = null;
+      node.labelEl = null;
+    });
+
+    var byAddr = {};
+    nodes.forEach(function (node) { byAddr[node.addr] = node; });
+
+    edges.forEach(function (edge) {
+      var a = byAddr[edge.caller];
+      var b = edge.callee === null || edge.callee === undefined ? null : byAddr[edge.callee];
+      if (!a || !b) return;
+      var line = svgEl("line");
+      line.setAttribute("stroke", colors[edge.kind] || "#9ca3af");
+      line.setAttribute("stroke-width", "1.2");
+      line.setAttribute("stroke-opacity", "0.75");
+      world.appendChild(line);
+      edge.el = line;
+      edge.a = a;
+      edge.b = b;
+    });
+
+    nodes.forEach(function (node) {
+      var circle = svgEl("circle");
+      circle.setAttribute("r", "7");
+      circle.setAttribute("fill", node.color || "#6b7280");
+      circle.setAttribute("stroke", "#fff");
+      circle.setAttribute("stroke-width", "1");
+      circle.style.cursor = "grab";
+      world.appendChild(circle);
+      node.el = circle;
+
+      var label = svgEl("text");
+      label.textContent = node.label;
+      world.appendChild(label);
+      node.labelEl = label;
+
+      circle.addEventListener("mousedown", function (ev) {
+        ev.stopPropagation();
+        view.drag = node;
+        circle.style.cursor = "grabbing";
+      });
+    });
+
+    current = { nodes: nodes, edges: edges };
+    layoutNodes();
+    applyView();
+    $("gstate").textContent = note || (nodes.length + " nodes / " + edges.length + " edges");
+  }
+
+  function layoutNodes() {
+    current.nodes.forEach(function (node) {
+      node.el.setAttribute("cx", node.x);
+      node.el.setAttribute("cy", node.y);
+      node.labelEl.setAttribute("x", node.x + 9);
+      node.labelEl.setAttribute("y", node.y + 3);
+    });
+    current.edges.forEach(function (edge) {
+      edge.el.setAttribute("x1", edge.a.x);
+      edge.el.setAttribute("y1", edge.a.y);
+      edge.el.setAttribute("x2", edge.b.x);
+      edge.el.setAttribute("y2", edge.b.y);
+    });
+  }
+
+  function svgPoint(ev) {
+    var rect = $("graph").getBoundingClientRect();
+    return {
+      x: (ev.clientX - rect.left - view.tx) / view.scale,
+      y: (ev.clientY - rect.top - view.ty) / view.scale
+    };
+  }
+
+  $("graph").addEventListener("mousedown", function (ev) {
+    if (view.drag) return;
+    view.pan = { x: ev.clientX, y: ev.clientY, tx: view.tx, ty: view.ty };
+    $("graphwrap").style.cursor = "grabbing";
+  });
+  window.addEventListener("mousemove", function (ev) {
+    if (view.drag) {
+      var point = svgPoint(ev);
+      view.drag.x = point.x;
+      view.drag.y = point.y;
+      layoutNodes();
+      return;
+    }
+    if (view.pan) {
+      view.tx = view.pan.tx + (ev.clientX - view.pan.x);
+      view.ty = view.pan.ty + (ev.clientY - view.pan.y);
+      applyView();
+    }
+  });
+  window.addEventListener("mouseup", function () {
+    if (view.drag && view.drag.el) view.drag.el.style.cursor = "grab";
+    view.drag = null;
+    view.pan = null;
+    $("graphwrap").style.cursor = "grab";
+  });
+  $("graph").addEventListener("wheel", function (ev) {
+    ev.preventDefault();
+    var factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+    view.scale = Math.min(4, Math.max(0.25, view.scale * factor));
+    applyView();
+  }, { passive: false });
+
+  var CALL_COLORS = { direct: "#3b82f6", import: "#8b5cf6", tail: "#0ea5e9", thunk: "#f59e0b" };
+
+  $("gcall").onclick = function () {
+    var doc = window.__lastAnalyze;
+    if (!doc) { $("gstate").textContent = "run analyze first"; return; }
+    var nodes = doc.graph.nodes.map(function (addr) {
+      return { addr: addr, label: "0x" + addr.toString(16), color: "#6b7280" };
+    });
+    var limit = 400;
+    if (nodes.length > limit) {
+      nodes = nodes.slice(0, limit);
+    }
+    var kept = {};
+    nodes.forEach(function (n) { kept[n.addr] = true; });
+    var edges = doc.graph.edges.filter(function (e) { return kept[e.caller] && kept[e.callee]; });
+    legend([["direct", CALL_COLORS.direct], ["import", CALL_COLORS.import],
+            ["tail", CALL_COLORS.tail], ["thunk", CALL_COLORS.thunk]]);
+    drawGraph(nodes, edges, CALL_COLORS, nodes.length + " nodes / " + edges.length + " edges" +
+      (doc.graph.nodes.length > limit ? " (first " + limit + ")" : ""));
+  };
+
+  $("gdiff").onclick = function () {
+    var doc = window.__lastDiff;
+    if (!doc) { $("gstate").textContent = "run diff first"; return; }
+    var nodes = [];
+    var seen = {};
+    function add(addr, color) {
+      if (addr === null || addr === undefined) return;
+      if (seen[addr]) return;
+      seen[addr] = true;
+      nodes.push({ addr: addr, label: "0x" + addr.toString(16), color: color });
+    }
+    doc.removed_nodes.forEach(function (n) { add(n.address, "#dc2626"); });
+    doc.added_nodes.forEach(function (n) { add(n.address, "#16a34a"); });
+    doc.removed_edges.forEach(function (e) { add(e.caller, "#dc2626"); add(e.callee, "#dc2626"); });
+    doc.added_edges.forEach(function (e) { add(e.caller, "#16a34a"); add(e.callee, "#16a34a"); });
+    var edges = [];
+    doc.removed_edges.forEach(function (e) { edges.push({ caller: e.caller, callee: e.callee, kind: "removed" }); });
+    doc.added_edges.forEach(function (e) { edges.push({ caller: e.caller, callee: e.callee, kind: "added" }); });
+    legend([["added", "#16a34a"], ["removed", "#dc2626"]]);
+    drawGraph(nodes, edges, { added: "#16a34a", removed: "#dc2626" },
+      nodes.length + " nodes / " + edges.length + " edges (added+removed)");
+  };
+
+  $("gclear").onclick = clearGraph;
   $("report").onclick = function () {
     $("diffstate").textContent = "building report...";
     fetch("/report", {

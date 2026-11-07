@@ -304,6 +304,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 204)
         self.assertEqual(text, "")
 
+    def test_ui_exposes_interactive_graph(self):
+        status, text, _ = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn('<svg id="graph"', text)
+        self.assertIn("view call graph", text)
+        self.assertIn("view diff graph", text)
+        self.assertIn("addEventListener(\"wheel\"", text)
+        self.assertIn("http://www.w3.org/2000/svg", text)
+        self.assertNotIn("d3", text)
+        self.assertNotIn("chart.js", text.lower())
+
     def test_path_fields_are_textareas(self):
         status, text, _ = self.request("GET", "/")
         self.assertEqual(status, 200)

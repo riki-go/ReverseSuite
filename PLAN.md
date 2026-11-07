@@ -1,4 +1,4 @@
-# ReverseSuite — PLAN v3 (review draft)
+# ReverseSuite — PLAN v5.0 (M5 in progress)
 
 เกณฑ์ผูกกับ Definition of Done ของแต่ละ milestone ไม่ผูกกับจำนวนสัปดาห์
 
@@ -236,6 +236,14 @@
 - ผ่านเมื่อ: `npx tauri build` ผ่านและได้ MSI, แอปเริ่มได้โดยไม่ต้องเปิด terminal, session handshake ทำงาน (session.json → `/healthz` 200), ปิด parent แล้วไม่มี `reversesuite-backend.exe` ค้าง, `dist/index.html` ซ่อนช่อง token และขึ้น "Connected" เมื่อมี rs-token
 - ผลวัด: MSI `ReverseSuite_0.1.0_x64_en-US.msi` 13.62 MiB; exe 11,336,192 B; cold build 7m52s, incremental 29s; handshake จริง `PORT=55559` → `/healthz` 200 → analyze path นอก root 403; หลัง kill parent backend เหลือ 0 process
 - ข้อจำกัดที่พบ: ใน environment ที่เอเจนต์รันอยู่ (Windows session 0 / ไม่มี interactive desktop) การสร้าง WebView2 ล้มเหลวด้วย `HRESULT 0x80070578 Invalid window handle` — ตัวแอปจึงทำงานแบบ headless (เขียน session.json + ให้บริการ backend ตามปกติ) แต่ **ยังไม่ได้ยืนยันด้วยตาเปล่าว่าหน้าต่างแสดงผลจริงบนเดสก์ท็อปผู้ใช้**
+### AC-24 Interactive graph (M5)
+- UI มีปุ่ม `view call graph`, `view diff graph`, `clear` และ `<svg id="graph">` ในหน้าเดียวกับ Analyze/Diff (Vanilla JS, `document.createElementNS`, ไม่มีไลบรารีภายนอก — รักษา CSP nonce เดิม)
+- layout: วงกลมรอบศูนย์กลางตามดัชนี node (deterministic), label เป็น `0x<addr>`; call graph จำกัด 400 node แรกและบอกในสถานะ
+- สี: call graph แยกตาม kind (`direct` ฟ้า, `import` ม่วง, `tail` ฟ้าเข้ม, `thunk` ส้ม); diff: added เขียว `#16a34a`, removed แดง `#dc2626` พร้อม legend
+- interaction: ลาก node ด้วย mouse (mousedown/mousemove/mouseup), pan ด้วยการลากพื้นที่ว่าง, zoom ด้วย wheel (0.25x–4x ผ่าน `transform`), ล้างภาพด้วยปุ่ม clear
+- ผ่านเมื่อ: หน้าเว็บมี `svg id=graph` + ปุ่มทั้งสาม + ไม่มี string `d3`/`chart.js`; สคริปต์ parse ผ่าน `node --check`; Chrome headless: พบ element ครบ, `#status` แสดงข้อความจริง (ไม่ค้าง checking), console ไม่มี error; unittest ผ่าน
+- ผลวัด: `node --check` ผ่าน (JS 12.5 KB), Chrome headless `dom_bytes 15658`, `graph_svg/gcall/gdiff = True`, `pill_text = token required`, console ว่าง; unittest **112/112 OK**; MSI 14:12 → 14,295,040 B sha256 d003d922...
+- ยังไม่ทำ: force-directed layout, การลากให้ edge ตามแบบเรียลไทม์ระดับ 60fps สำหรับกราฟใหญ่, export เป็น SVG/PNG, การเลือก node แล้วไฮไลต์เพื่อนบ้าน
 ### AC-10 Local API security (ปิดแล้วใน M3 slice 1)
 - ไม่มี token -> 401; Host ไม่ใช่ localhost -> 403; Origin แปลกปลอม -> 403; ไม่มี CORS wildcard
 - ผลวัด: `tests/test_api.py` 11 เคสผ่านทั้งหมด — ไม่มี token 401, token ทาง query string **ไม่** ผ่าน (401), Host `evil.example` 403, Origin `https://evil.example` 403, Origin `http://localhost:3000` 200, ไม่มี header `Access-Control-Allow-Origin` ในทุก response, path นอก allowlist 403
@@ -490,3 +498,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.19: **แก้ JS SyntaxError ตัวจริง** — หน้า UI มี newline จริงอยู่กลางสตริง `.join("
 ")` และ quote ที่หลุด escape ใน `class="muted"` ทำให้สคริปต์ทั้งก้อนไม่ทำงาน (Chrome รายงาน `SyntaxError` ที่ index.html:88) เขียน UI ใหม่เป็น raw string (`r"""..."""`) ใช้ single quote ใน JS + double quote ใน HTML attribute และเลิกใช้ escape ที่หลั่งไหล; `dist/index.html` สร้างจาก `api.UI_HTML` ผ่าน `build/sync_dist.py` (เดิม slice จาก source ทำให้ escape ไม่ตรง). ตรวจซ้ำด้วยการอ่านข้อความใน `#status` (ไม่ใช่ค้นทั้ง DOM ซึ่งให้ false positive) — ทั้ง dist และหน้า API ได้ `token required`, `roothint = backend: http://127.0.0.1:...`, console ไม่มี error. unittest 106/106; MSI 13:21 → 14,274,560 B sha256 7590813d...
 - v4.20: ปลดล็อก path + Analyze from URL. `serve --root` กลายเป็น optional (ไม่ระบุ = รับ absolute path ใดก็ได้บนเครื่อง; ระบุ = โหมดล็อกเหมือนเดิม) — desktop wrapper ไม่ส่ง `--root` แล้ว, `resolve_path()` เช็กแค่ว่า absolute + มีจริง, relative path → 403. เพิ่ม `POST /analyze` รับ `http(s)://` ได้: ดาวน์โหลดลง `tempfile.mkdtemp()` (เพดาน 256 MB, timeout 30 s, ตรวจ magic `MZ`), วิเคราะห์, แล้ว `shutil.rmtree` ใน `finally` — error เป็น 400 พร้อมรหัส (`http_404`, `not_a_pe_file`, `file_too_large`, `download_failed`). UI: placeholder "Absolute path (C:/...) or URL (https://...)". ผลทดสอบสดบน sidecar ที่แพ็กแล้ว: absolute path นอก root → 200/21006 B, relative → 403, URL → 200/21006 B + temp ถูกเก็บกวาด, URL 404 → 400. unittest 111/111 OK; MSI 13:55 → 14,290,944 B sha256 3bc1e4d5...
+- v5.0: เปิด M5 — interactive SVG graph ใน UI (Vanilla JS + `createElementNS`, ไม่มีไลบรารีภายนอก, CSP เดิม). ปุ่ม view call graph / view diff graph / clear; ลาก node, pan, wheel zoom 0.25–4x; สีตาม kind และ added/removed. ตรวจด้วย `node --check` + Chrome headless (element ครบ, pill แสดงผลจริง, console ว่าง). unittest 112/112; MSI 14:12 → 14,295,040 B sha256 d003d922...
