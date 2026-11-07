@@ -6,6 +6,7 @@
 
 | Skill | What it does | Path |
 | --- | --- | --- |
+| `winremote` | ควบคุมเดสก์ท็อป Windows ผ่าน MCP: snapshot, click, type, shortcut, OCR, process/port queries | [`winremote/SKILL.md`](winremote/SKILL.md) |
 | `reversesuite` | ใช้งาน ReverseSuite CLI/API: analyze, calls, diff, report, serve; ข้อจำกัดและวิธีตรวจผล | [`reversesuite/SKILL.md`](reversesuite/SKILL.md) |
 
 > เพิ่มสกิลใหม่แล้วอัปเดตตารางนี้ทุกครั้ง — ตารางนี้คือสัญญาระหว่างคนกับ AI
@@ -41,5 +42,5 @@ Copy-Item _TEMPLATE_SKILL.md my-skill\SKILL.md -Force
 
 ## สถานะ
 
-- สกิลที่ ship อยู่: `reversesuite`
+- สกิลที่ ship อยู่: `reversesuite`, `winremote`
 - สกิลที่เลิกใช้: ลบโฟลเดอร์ + ลบแถวใน Index (อย่าทิ้งไฟล์ค้าง)
