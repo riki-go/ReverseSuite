@@ -78,6 +78,12 @@ The bundled installer lands in `src-tauri/target/release/bundle/msi/`
   (b.exe: 16 edges). Calls through vtables or longer dataflow (a.exe: 17 remaining)
   need full value-set analysis and are out of scope for 0.2.0.
 - **MSVC builds are not reproducible.** AC-4 covers the pinned MinGW recipe only.
+- **M6.1 value-set analysis is experimental and off by default.** It exists in the
+  source (`callgraph.build(use_valueflow=True)`, `calls --valueflow`,
+  `analyze --valueflow`, API `{"valueflow": true}`) and resolves 1 of 17 remaining
+  indirect calls on b.exe. It stays disabled because it adds ~3 s to a mid-size
+  binary, so the shipped 0.2.1 installer behaves exactly like the default build.
+  M6.2 (inter-procedural) and M6.3 (vtable/RTTI) are deferred.
 - **No multi-user hardening.** The API binds loopback with a session token, but the
   desktop build accepts any absolute local path; on a shared machine run
   `serve --root DIR` instead.

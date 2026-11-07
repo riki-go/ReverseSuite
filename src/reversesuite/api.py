@@ -69,7 +69,7 @@ def new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def analyze_bytes(data: bytes, workers: int = 1) -> dict:
+def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False) -> dict:
     """Run loader + functions + strings + call graph and return a canonical doc."""
     result = loader.parse(data)
     if result.status == "failed":
@@ -93,7 +93,8 @@ def analyze_bytes(data: bytes, workers: int = 1) -> dict:
         result.diagnostics.append(schema.Diagnostic(strings.XREF_SKIP_TEXT_TOO_LARGE,
                                                     "xref pass skipped", "info",
                                                     {"text_bytes": len(text)}))
-    graph = callgraph.build(data, funcs=found) if found else callgraph.CallGraph()
+    graph = (callgraph.build(data, funcs=found, use_valueflow=bool(valueflow))
+             if found else callgraph.CallGraph())
     result.findings.extend(schema.enforce_rules(
         functions.to_findings(found) + strings.to_findings(items) + callgraph.to_findings(graph)))
     doc = result.canonical()
@@ -1001,7 +1002,8 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                             self._send(400, {"error": "path_not_found"})
                             return
                     try:
-                        doc = analyze_bytes(target.read_bytes(), int(payload.get("workers", workers)))
+                        doc = analyze_bytes(target.read_bytes(), int(payload.get("workers", workers)),
+                                        bool(payload.get("valueflow", False)))
                     except Exception as exc:
                         self._send(400, {"error": "analysis_failed", "detail": exc.__class__.__name__})
                         return

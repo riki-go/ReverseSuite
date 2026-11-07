@@ -139,7 +139,8 @@ def _register_name(operand) -> Optional[str]:
 
 def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
           base: int = disasm.BASE_ADDRESS,
-          max_bytes: Optional[int] = MAX_GRAPH_TEXT_BYTES) -> CallGraph:
+          max_bytes: Optional[int] = MAX_GRAPH_TEXT_BYTES,
+          use_valueflow: bool = False) -> CallGraph:
     text = loader.text_bytes(data)
     if functions.skip_reason(len(text), max_bytes):
         return CallGraph(skipped=functions.FUNCTION_SKIP_TEXT_TOO_LARGE)
@@ -260,6 +261,8 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
     # M6.1: intra-procedural value-set pass for sites that are still unresolved.
     resolved_sites = {e.site for e in edges}
     pending = sorted(site for site in set(unresolved_sites) if site not in resolved_sites)
+    if not use_valueflow:
+        pending = []
     extra_resolved = 0
     if pending:
         view = valueflow.ImageView(data)

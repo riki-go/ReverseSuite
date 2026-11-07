@@ -11,7 +11,7 @@ class ValueflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.data = (FIXTURES / "b.exe").read_bytes()
-        cls.graph = callgraph.build(cls.data)
+        cls.graph = callgraph.build(cls.data, use_valueflow=True)
 
     def test_global_to_function_pointer_chain(self):
         edge = next(e for e in self.graph.edges if e.site == 0x138B)
@@ -42,7 +42,7 @@ class ValueflowTests(unittest.TestCase):
         self.assertEqual(kinds["tail"], 2)
 
     def test_deterministic(self):
-        again = callgraph.build(self.data)
+        again = callgraph.build(self.data, use_valueflow=True)
         self.assertEqual(self.graph.as_dict(), again.as_dict())
 
     def test_image_view_maps_sections(self):

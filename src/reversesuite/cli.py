@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     analyze.add_argument("--no-xref", action="store_true", help="skip string xref resolution")
     analyze.add_argument("--min-string-length", type=int, default=strings_mod.MIN_LENGTH)
     analyze.add_argument("--disasm-out", default="", help="also stream disassembly to this JSONL path")
+    analyze.add_argument("--valueflow", action="store_true",
+                         help="run the experimental value-set pass (slower)")
     dis = sub.add_parser("disasm", help="stream disassembly to JSONL")
     dis.add_argument("path")
     dis.add_argument("--out", required=True)
@@ -69,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     cg = sub.add_parser("calls", help="build the call graph (direct/tail/thunk edges)")
     cg.add_argument("path")
     cg.add_argument("--json", action="store_true", help="emit JSON on stdout")
+    cg.add_argument("--valueflow", action="store_true", help="run the experimental value-set pass")
     fn = sub.add_parser("functions", help="discover function starts heuristically")
     fn.add_argument("path")
     fn.add_argument("--json", action="store_true", help="emit JSON array on stdout")
@@ -171,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"cannot read input: {exc}", file=sys.stderr)
             return EXIT_USAGE
         try:
-            graph = callgraph_mod.build(data)
+            graph = callgraph_mod.build(data, use_valueflow=bool(getattr(args, "valueflow", False)))
         except Exception as exc:
             print(f"cannot build call graph: {exc}", file=sys.stderr)
             return EXIT_FAILED
@@ -340,7 +343,8 @@ def main(argv: list[str] | None = None) -> int:
                     strings_mod.XREF_SKIP_TEXT_TOO_LARGE, "xref pass skipped", "info",
                     {"text_bytes": len(text), "cap": strings_mod.MAX_XREF_TEXT_BYTES,
                      "reason": reason}))
-            graph = callgraph_mod.build(data, funcs=found) if found else callgraph_mod.CallGraph()
+            graph = (callgraph_mod.build(data, funcs=found, use_valueflow=bool(args.valueflow))
+                     if found else callgraph_mod.CallGraph())
             result.findings.extend(schema.enforce_rules(
                 functions_mod.to_findings(found) + strings_mod.to_findings(items) + callgraph_mod.to_findings(graph)))
             extra = {"functions": len(found), "strings": len(items),

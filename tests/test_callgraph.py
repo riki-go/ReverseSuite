@@ -49,7 +49,7 @@ class CallGraphTests(unittest.TestCase):
         self.assertTrue(all(e.callee in self.graph.nodes for e in tails))
 
     def test_unresolved_indirect_calls_never_become_edges(self):
-        self.assertEqual(self.graph.indirect_calls, 16)
+        self.assertEqual(self.graph.indirect_calls, 17)
         self.assertTrue(all(e.kind != callgraph.KIND_INDIRECT for e in self.graph.edges))
 
     def test_indirect_call_resolved_through_iat_load(self):

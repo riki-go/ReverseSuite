@@ -1,4 +1,4 @@
-# ReverseSuite — PLAN v6.2 (M6.1 value-set slice)
+# ReverseSuite — PLAN v6.3 (project complete at 0.2.1)
 
 เกณฑ์ผูกกับ Definition of Done ของแต่ละ milestone ไม่ผูกกับจำนวนสัปดาห์
 
@@ -574,3 +574,10 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - **AC-25c ผ่าน**: site recall 1.0000 (125/125) และ precision ของ edge ชนิด direct+import ยัง 0.9843 (125/127) — edge ที่เพิ่มเป็นชนิด `indirect_resolved` จึงไม่ปนกับตัวเลขเดิม
   - **AC-25e ผ่าน**: build สองครั้งให้ as_dict เท่ากัน; **perf**: b.exe 0.07 s, a.exe 3.22 s (เพดาน 5 s)
   - unittest **152/152 OK**
+- v6.3 (**ปิด M6 ตามคำสั่ง — หยุดที่ M6.1**):
+  - **M6.1 = Experimental, merged, opt-in** — `callgraph.build(..., use_valueflow=True)` / `reversesuite calls --valueflow` / `analyze --valueflow` / API `{"valueflow": true}`; **ค่าเริ่มต้นปิด** เพื่อไม่ให้เวลา analyze บนไฟล์กลาง ๆ เพิ่มขึ้น (วัดจริง: graph build b.exe 0.07 s แต่ a.exe 3.19 s เมื่อเปิด)
+  - **Yield ต่ำ: 1/17 จุดบน b.exe** (0x138b → 0x1970 ผ่าน global 0x53b0 → data 0x5088 → code) — ที่เหลือเป็น global ที่เป็น NULL ในไฟล์, ค่าจาก parameter/stack, และ jump table ซึ่งอยู่นอกขอบเขต intra-procedural
+  - **M6.2 (inter-procedural) และ M6.3 (vtable/RTTI) = Deferred** — ผลตอบแทนไม่คุ้มความซับซ้อนตามการประเมิน; บันทึกไว้ทำต่อเมื่อมีเคสจริงที่ต้องการ
+  - **ไม่ rebuild MSI**: 0.2.1 ที่ปล่อยแล้วมีพฤติกรรมเท่ากับค่าเริ่มต้นของ source (valueflow ปิด) จึงไม่มี artifact ค้าง; ผู้ใช้ที่ต้องการทดลองใช้ CLI/API flag
+  - AC-25c/25e ยังคงผ่าน (site recall 1.0000, precision direct+import 0.9843, deterministic); unittest **152/152 OK**
+  - **สถานะโปรเจกต์: Complete ที่ v0.2.1 — Standby รอ UAT**
