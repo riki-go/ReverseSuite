@@ -267,12 +267,17 @@ def make_handler(token: str, root: Path, workers: int = 1):
             return
 
         def _send_html(self, status: int, document: str) -> None:
-            body = document.encode("utf-8")
+            import secrets as _secrets
+            nonce = _secrets.token_urlsafe(16)
+            body = document.replace("<script>", '<script nonce="%s">' % nonce).encode("utf-8")
+            csp = ("default-src 'none'; style-src 'unsafe-inline'; "
+                   "script-src 'nonce-%s'; connect-src 'self'; "
+                   "img-src 'self' data:; base-uri 'none'; form-action 'none'" % nonce)
             self.send_response(status)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+            self.send_header("Content-Security-Policy", csp)
             self.end_headers()
             self.wfile.write(body)
 
