@@ -330,6 +330,26 @@
 **(d) streaming เป็น default**
 - streaming **บังคับ** เมื่อ slice >= 32 MB ไม่ว่า `R_buffer − R_stream` จะเป็นเท่าไร
 - เหตุผล: buffer ที่ 70 MB ≈ 26M rows ≈ 1.3 GB ซึ่งเกิน cap ใด ๆ ที่ประกาศ (delta 10.5 MB ที่ 10 MB slice ไม่ใช่เหตุผลที่ต้อง stream)
+### 14.2.2 AC-7a / AC-7b ที่ขนาดจริง 71 MB (v4.4)
+ข้อเท็จจริงจากการสร้าง fixture:
+- d.exe = 46 TU · 2,326,450 ฟังก์ชัน · exe 71.1 MB · `.text` = 74,531,840 B (71.07 MB) ✅ ตรงเป้า 70 MB
+- ต้นเหตุที่เคยล้มเหลว: `__declspec(dllexport)` ทำให้ `LNK1189: library limit of 65535 objects exceeded` และทำให้ cl ช้า/obj ค้าง 0 ไบต์ → เปลี่ยนเป็น `__declspec(noinline)`
+- Defender exclusion ที่โฟลเดอร์โปรเจกต์ลดเวลาคอมไพล์อย่างมีนัยสำคัญ (บันทึกเป็นข้อกำหนดของ environment การวัด ไม่ใช่ของผลิตภัณฑ์)
+
+**AC-7a (CPU disasm, เกณฑ์หลัก) — parallel 6 workers**
+- `spikes/s1b_parallel.py` · แบ่ง .text เป็น 6 ก้อน, disasm ภายในก้อนละ 2 MB (capstone 5.0.9 ล้มเหลว `CS_ERR_MEM` เมื่อ buffer ใหญ่กว่านี้)
+- ผล: instructions 38,447,906 · **wall 19.481 s** · 1,973,566 instr/s
+- RSS: **peak ต่อ process 518.3–518.5 MB** (ผ่าน cap 1 GB) · ผลรวมทุก worker 3,110 MB (บันทึกเป็นข้อมูลประกอบ; cap ที่ผูกคือ per-process)
+- เกณฑ์ผ่าน AC-7a: wall <= 60 s และ per-process RSS <= 1 GB
+- **RSS gate is per-worker <= 1 GB.** Total RSS = 3.11 GB for 6 workers. Future scaling must account for RAM total (e.g. 8 workers ≈ 4.2 GB).
+
+**AC-7b (E2E: disasm + JSONL + gzip) — แยกเกณฑ์**
+- ผล: instructions 41,896,289 · **wall 167.014 s** · 250,855 instr/s · peak RSS 648.8 MB
+- JSONL raw 1,532,523,522 B (20.56× ของ code) · gzip 136,779,241 B = **8.93% ของ raw**
+- gzip verified: decompress 8 MB แรกได้ครบ, บรรทัดแรกเป็น JSON ที่ถูกต้อง
+- เกณฑ์ผ่าน AC-7b: wall <= 180 s · gzip <= 20% ของ raw · raw ratio > 8×
+
+**หมายเหตุความต่างของจำนวน instruction** ระหว่าง single (36,434,211) กับ parallel (38,447,906) เกิดจากการตัดขอบ chunk ต่างกัน — AC-7a ใช้การแบ่งแบบขนานตามที่ระบุ
 ### 14.3 R1 (Job Object) — เกณฑ์ที่สไปก์ต้องยืนยัน (แก้ตามข้อเท็จจริงของ Windows)
 ข้อเท็จจริง: เมื่อโปรเซสใน Job จองเกิน memory limit **การจองล้มเหลว ไม่ใช่ถูกฆ่าอัตโนมัติ** — ผู้เรียกต้องตัดสินใจเอง
 
@@ -384,3 +404,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.2: S1 = เกณฑ์คงที่ 60 วิ/1 GB + สูตรขนาด (มัธยฐาน 3 รอบ, คำนวณครั้งเดียว, วัด B ของ d.exe ภายหลัง), R1 = นิยามตามพฤติกรรมจริงของ Job (peak <= cap+64MB + ตรวจจับเหตุการณ์ + ยุติ <= 2 วิ) + กติการันเนอร์ CREATE_SUSPENDED/Resume/KILL_ON_JOB_CLOSE + ctypes เท่านั้น, T2 หน่วยชัดเจน + config_hash, diagnostic priority (cap ก่อน truncated) + `pe.opt.size_mismatch`, 512 MB เฉพาะสไปก์, นิยาม retry
 - บันทึกประวัติที่ขาด (ย้อนหลัง): b.exe เปลี่ยนจาก MSVC เป็น MinGW-w64 + strip (b_unstripped เป็นเฉลย AC-15) · นโยบาย frozen fixture + MSVC build ไม่ reproducible (ทดสอบ /Brepro แล้ว hash ต่าง) · เลือก UPX 5.2.1 ด้วยกติกาอายุ 14 วัน + checksum_source = GitHub asset digest · provenance MSVC (โฟลเดอร์ 14.44.35207 vs ไบนารี 19.44.35228.0, ยืนยันได้แค่ linker 14.44 จาก PE header) · แก้ข้อผิดพลาดเดิม: a.exe เป็น PE32+ x64 (Machine 0x8664, Magic 0x20B, OptSize 240) ไม่ใช่ PE32/OptSize 224 · กติกา git (ห้าม add -A, ระบุ path, commit ต้องอนุมัติรายครั้ง) + เหตุการณ์ git add -A ที่ดูด toolchain 11,878 ไฟล์เข้า commit 19eeb6a และการแก้ด้วย 0d995c9/8184c5d · ตัดสินใจยังไม่ rotate กุญแจ (Telegram/Tavily) แต่ต้อง untrack ไฟล์ memory ที่มีค่าเมื่อได้อนุมัติ · เอา notepad.exe ออกจาก AC-1 (ใช้ fixture ที่คอมไพล์เองทั้งหมด)
 - v4.3: ล็อก AC-7a จากผล S1 — 70 MB target, T เป็น proxy (ผลจริงชนะ), fallback 65 MB ที่ประกาศล่วงหน้าเมื่อ >45 s (gate ยัง 60 s/1 GB), gzip <= 20% ของ raw + raw ratio > 8x, streaming บังคับที่ slice >= 32 MB
+- v4.4: วัดจริงที่ 71.07 MB — AC-7a = parallel disasm 6 workers (19.481 s, per-process RSS 518 MB), AC-7b = E2E (167.014 s, gzip 8.93%); เพิ่มเหตุผล LNK1189/noinline, Defender exclusion, และข้อกำหนด buffer 2 MB ของ capstone

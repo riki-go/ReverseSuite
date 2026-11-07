@@ -41,6 +41,20 @@
     "70MB target met at 71.07MB .text (46 parts, 2,326,450 functions)",
     "parallel disasm 6 workers passes 45s/60s gate at 19.5s",
     "per-worker RSS 518MB (under 1GB); aggregate 3.11GB",
-    "E2E numbers measured on the earlier 61.8MB build (64,821,760 B .text)"
-  ]
+    "E2E numbers measured on the earlier 61.8MB build (64,821,760 B .text)",
+    "AC-7b E2E measured on the 71.07MB d.exe; raw jsonl (1.43GB) deleted after gzip verification, .gz (130MB) kept"
+  ],
+  "ac7b_e2e_71mb": {
+    "text_bytes": 74531840,
+    "instructions": 41896289,
+    "wall_s": 167.014,
+    "peak_rss_mb": 648.8,
+    "instr_per_s": 250855,
+    "jsonl_raw_bytes": 1532523522,
+    "jsonl_gzip_bytes": 136779241,
+    "raw_ratio_over_code": 20.562,
+    "gzip_over_raw_pct": 8.93,
+    "gzip_verified": "first 8MB decompressed ok; first line well-formed JSON",
+    "raw_deleted": true
+  }
 }
