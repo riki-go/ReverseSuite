@@ -24,6 +24,16 @@ desktop wrapper.
 `serve` prints `PORT=<n> TOKEN=<t>` on stderr and `{"url": ...}` on stdout; the
 token is required in the `Authorization` header (never in the URL).
 
+## Features
+
+- PE loader with hard caps, packer hint (UPX), imports/exports/strings
+- Function discovery (AC-15: recall 1.000 / precision 0.989 vs COFF truth)
+- Strings with xrefs (AC-16), call graph with import resolution (AC-17/19)
+- Graph diff with node matching (AC-18) and md/html reports (AC-20)
+- Local API + UI (token, Host/Origin guards, rate limit, SSRF guard) and
+  interactive SVG call/diff graph with drag, zoom and SVG/PNG export
+- Job Object sandbox for helper processes (memory, process-count, wall-clock caps)
+
 ## Desktop app (Tauri v2)
 
 Requirements: Python venv with this project installed, Node 18+, Rust stable,
@@ -46,7 +56,8 @@ What the wrapper does:
    `sessionStorage` through an initialization script (no manual token entry),
 5. kills the sidecar when the window closes.
 
-The bundled installer lands in `src-tauri/target/release/bundle/msi/`.
+The bundled installer lands in `src-tauri/target/release/bundle/msi/`
+(`ReverseSuite_0.2.0_x64_en-US.msi`).
 
 ## Tests
 

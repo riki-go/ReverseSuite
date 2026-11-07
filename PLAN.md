@@ -250,6 +250,7 @@
 - sidecar ต้องตายตาม parent: `--parent-pid` ใช้ `OpenProcess(SYNCHRONIZE)` + `WaitForSingleObject` ในเธรด daemon แล้ว `os._exit(0)`
 - ผ่านเมื่อ: `npx tauri build` ผ่านและได้ MSI, แอปเริ่มได้โดยไม่ต้องเปิด terminal, session handshake ทำงาน (session.json → `/healthz` 200), ปิด parent แล้วไม่มี `reversesuite-backend.exe` ค้าง, `dist/index.html` ซ่อนช่อง token และขึ้น "Connected" เมื่อมี rs-token
 - ผลวัด: MSI `ReverseSuite_0.1.0_x64_en-US.msi` 13.62 MiB; exe 11,336,192 B; cold build 7m52s, incremental 29s; handshake จริง `PORT=55559` → `/healthz` 200 → analyze path นอก root 403; หลัง kill parent backend เหลือ 0 process
+- ติดตั้งจริงแล้ว: `msiexec /i ReverseSuite_0.2.0_x64_en-US.msi /qn` → rc 0, ไฟล์ลง `C:\Program Files\ReverseSuite` (desktop + backend + uninstall shortcut); `msiexec /x` → rc 0 และโฟลเดอร์ถูกลบ
 - ข้อจำกัดที่พบ: ใน environment ที่เอเจนต์รันอยู่ (Windows session 0 / ไม่มี interactive desktop) การสร้าง WebView2 ล้มเหลวด้วย `HRESULT 0x80070578 Invalid window handle` — ตัวแอปจึงทำงานแบบ headless (เขียน session.json + ให้บริการ backend ตามปกติ) แต่ **ยังไม่ได้ยืนยันด้วยตาเปล่าว่าหน้าต่างแสดงผลจริงบนเดสก์ท็อปผู้ใช้**
 ### AC-24 Interactive graph (M5)
 - UI มีปุ่ม `view call graph`, `view diff graph`, `clear` และ `<svg id="graph">` ในหน้าเดียวกับ Analyze/Diff (Vanilla JS, `document.createElementNS`, ไม่มีไลบรารีภายนอก — รักษา CSP nonce เดิม)
