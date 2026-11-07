@@ -112,12 +112,13 @@ def main(argv: list[str] | None = None) -> int:
             kinds = {}
             for edge in graph.edges:
                 kinds[edge.kind] = kinds.get(edge.kind, 0) + 1
-            print("nodes %d edges %d (%s) indirect %d unresolved %d" % (
+            print("nodes %d edges %d (%s) indirect %d imports %d unresolved %d" % (
                 len(graph.nodes), len(graph.edges),
                 ", ".join("%s=%d" % (k, v) for k, v in sorted(kinds.items())) or "none",
-                graph.indirect_calls, graph.unresolved_calls))
+                graph.indirect_calls, graph.import_calls, graph.unresolved_calls))
             for edge in graph.edges[:10]:
-                print("  0x%x -> 0x%x  %s @0x%x" % (edge.caller, edge.callee or 0, edge.kind, edge.site))
+                target = ("0x%x" % edge.callee) if edge.callee is not None else (edge.name or "?")
+                print("  0x%x -> %s  %s @0x%x" % (edge.caller, target, edge.kind, edge.site))
         return EXIT_OK
     if args.cmd == "strings":
         try:

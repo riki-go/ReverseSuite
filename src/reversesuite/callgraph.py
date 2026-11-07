@@ -21,6 +21,7 @@ KIND_DIRECT = "direct"
 KIND_TAIL = "tail"
 KIND_THUNK = "thunk"
 KIND_INDIRECT = "indirect"
+KIND_IMPORT = "import"
 
 MAX_GRAPH_TEXT_BYTES = functions.MAX_FUNCTION_TEXT_BYTES
 
@@ -41,9 +42,11 @@ class CallEdge:
     callee: Optional[int]
     site: int
     kind: str
+    name: Optional[str] = None
 
     def as_dict(self) -> dict:
-        return {"caller": self.caller, "callee": self.callee, "site": self.site, "kind": self.kind}
+        return {"caller": self.caller, "callee": self.callee, "site": self.site,
+                "kind": self.kind, "name": self.name}
 
 
 @dataclass
@@ -52,6 +55,7 @@ class CallGraph:
     edges: Tuple[CallEdge, ...] = ()
     node_info: Tuple[NodeInfo, ...] = ()
     indirect_calls: int = 0
+    import_calls: int = 0
     unresolved_calls: int = 0
     tail_calls: int = 0
     thunk_calls: int = 0
@@ -69,6 +73,7 @@ class CallGraph:
             "node_info": [n.as_dict() for n in self.node_info],
             "edges": [e.as_dict() for e in self.edges],
             "indirect_calls": self.indirect_calls,
+            "import_calls": self.import_calls,
             "unresolved_calls": self.unresolved_calls,
             "tail_calls": self.tail_calls,
             "thunk_calls": self.thunk_calls,
@@ -76,10 +81,23 @@ class CallGraph:
         }
 
 
-def _thunks(text: bytes, funcs: Sequence[functions.Function], base: int) -> Dict[int, int]:
-    """start -> final target for single-jmp thunk bodies."""
-    engine = disasm.make_engine()
-    out: Dict[int, int] = {}
+def _mem_target(insn: capstone.CsInsn, op) -> Optional[int]:
+    """Resolve a memory operand that holds an absolute address."""
+    if op.type != capstone.x86.X86_OP_MEM:
+        return None
+    if op.mem.base == capstone.x86.X86_REG_RIP:
+        return insn.address + insn.size + op.mem.disp
+    if op.mem.base == 0 and op.mem.index == 0:
+        return op.mem.disp & 0xFFFFFFFFFFFFFFFF
+    return None
+
+
+def _thunks(text: bytes, funcs: Sequence[functions.Function], base: int,
+            iat: Dict[int, str]) -> Dict[int, Tuple[str, Optional[int], Optional[str]]]:
+    """start -> ("import", None, name) or ("thunk", target, None) for one-jmp bodies."""
+    engine = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    engine.detail = True
+    out: Dict[int, Tuple[str, Optional[int], Optional[str]]] = {}
     for fn in funcs:
         if fn.size > functions.THUNK_MAX_BYTES:
             continue
@@ -87,18 +105,17 @@ def _thunks(text: bytes, funcs: Sequence[functions.Function], base: int) -> Dict
         if off < 0 or off >= len(text):
             continue
         insn = next(iter(engine.disasm(text[off:off + functions.THUNK_MAX_BYTES], fn.start)), None)
-        if insn is None or insn.mnemonic != "jmp" or not insn.op_str.startswith("0x"):
+        if insn is None or insn.mnemonic != "jmp" or insn.size != fn.size:
             continue
-        if insn.size != fn.size:
+        if insn.operands and insn.operands[0].type == capstone.x86.X86_OP_IMM:
+            target = insn.operands[0].imm
+            if target != fn.start:
+                out[fn.start] = ("thunk", target, None)
             continue
-        try:
-            target = int(insn.op_str, 16)
-        except ValueError:
-            continue
-        if target != fn.start:
-            out[fn.start] = target
+        slot = _mem_target(insn, insn.operands[0]) if insn.operands else None
+        if slot is not None and slot in iat:
+            out[fn.start] = ("import", None, iat[slot])
     return out
-
 
 def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
           base: int = disasm.BASE_ADDRESS,
@@ -119,7 +136,11 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
         infos.append(NodeInfo(fn.start, fn.size, hashlib.sha256(body).hexdigest()))
     spans = [(f.start, f.start + max(f.size, 1)) for f in funcs]
     starts = [s for s, _ in spans]
-    thunks = _thunks(text, funcs, base)
+    iat: Dict[int, str] = {}
+    for entry in loader.imports(data):
+        label = entry.module + "!" + entry.name
+        iat.setdefault(entry.iat_address, label)
+    thunks = _thunks(text, funcs, base, iat)
     limit = base + len(text)
 
     def caller_of(addr: int) -> Optional[int]:
@@ -128,52 +149,58 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
         return starts[idx] if idx >= 0 else None
 
     engine = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-    engine.detail = False
+    engine.detail = True
     edges: List[CallEdge] = []
     indirect = 0
+    imports_hit = 0
     unresolved = 0
     tails = 0
     thunked = 0
     for insn in disasm.iter_instructions(text, base, engine):
-        if insn.mnemonic not in ("call", "jmp"):
+        if insn.mnemonic not in ("call", "jmp") or not insn.operands:
             continue
         caller = caller_of(insn.address)
         if caller is None:
             continue
+        op = insn.operands[0]
+        if op.type == capstone.x86.X86_OP_IMM:
+            target: Optional[int] = op.imm
+        else:
+            target = _mem_target(insn, op)
         if insn.mnemonic == "call":
-            if not insn.op_str.startswith("0x"):
+            if target is None:
                 indirect += 1
                 continue
-            try:
-                target = int(insn.op_str, 16)
-            except ValueError:
-                indirect += 1
+            if target in iat:
+                edges.append(CallEdge(caller, None, insn.address, KIND_IMPORT, iat[target]))
+                imports_hit += 1
                 continue
             if target in thunks:
-                edges.append(CallEdge(caller, thunks[target], insn.address, KIND_THUNK))
-                thunked += 1
-            elif target in node_set:
+                kind, final, label = thunks[target]
+                if kind == "import":
+                    edges.append(CallEdge(caller, None, insn.address, KIND_IMPORT, label))
+                    imports_hit += 1
+                else:
+                    edges.append(CallEdge(caller, final, insn.address, KIND_THUNK))
+                    thunked += 1
+                continue
+            if target in node_set:
                 edges.append(CallEdge(caller, target, insn.address, KIND_DIRECT))
             elif base <= target < limit:
                 edges.append(CallEdge(caller, target, insn.address, KIND_DIRECT))
                 unresolved += 1
             else:
+                edges.append(CallEdge(caller, None, insn.address, KIND_IMPORT, "external@0x%x" % target))
                 unresolved += 1
         else:
-            if not insn.op_str.startswith("0x"):
-                continue
-            try:
-                target = int(insn.op_str, 16)
-            except ValueError:
-                continue
-            if target == caller or target not in node_set:
+            if target is None or target == caller or target not in node_set:
                 continue
             edges.append(CallEdge(caller, target, insn.address, KIND_TAIL))
             tails += 1
     edges.sort(key=lambda e: (e.caller, e.site, e.callee or 0))
     return CallGraph(nodes=nodes, edges=tuple(edges), node_info=tuple(infos),
-                     indirect_calls=indirect, unresolved_calls=unresolved,
-                     tail_calls=tails, thunk_calls=thunked)
+                     indirect_calls=indirect, import_calls=imports_hit,
+                     unresolved_calls=unresolved, tail_calls=tails, thunk_calls=thunked)
 
 
 def to_findings(graph: CallGraph):
@@ -182,7 +209,8 @@ def to_findings(graph: CallGraph):
     for edge in graph.edges:
         out.append(schema.Finding(
             kind="edge",
-            value="0x%x->0x%x" % (edge.caller, edge.callee or 0),
+            value=("0x%x->%s" % (edge.caller, edge.name)) if edge.callee is None else (
+                "0x%x->0x%x" % (edge.caller, edge.callee)),
             confidence_permille=1000 if edge.kind == KIND_DIRECT else 900,
             level=edge.kind,
             rule=RULE_EDGE,

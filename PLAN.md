@@ -202,7 +202,7 @@
 - ทุก edge มี `site` (ที่อยู่คำสั่ง) เป็นหลักฐาน → แปลงเป็น `Evidence(space=va, xref=callee, rule=pe.callgraph.edge)`
 - ground truth: `objdump -d` บน `b_unstripped.exe` (ไฟล์เดียวกันก่อน strip) แล้ว map image base → normalized space `0x1000 + (rva − text_rva)`; เทียบที่ระดับ **call site**
 - ผ่านเมื่อ: direct recall **≥ 0.98** และ precision **≥ 0.98**; tail call ทุกตัวชี้ไป node จริง; จำนวน indirect ต้องไม่ถูกนับเป็น edge (misclassification = 0); deterministic; เกินเพดาน 32 MB → skip พร้อม diagnostic
-- ผลวัด (b.exe): nodes 88 · direct 125 · tail 2 · thunk 0 · indirect 35 · unresolved 0 → **recall 1.0000 / precision 1.0000** (125/125, extra 0), tail ชี้ node ครบ 2/2
+- ผลวัด (b.exe, ก่อน AC-19): nodes 88 · direct 125 · tail 2 · thunk 0 · indirect 35 · unresolved 0 → recall 1.0000 / precision 1.0000 (125/125). หลัง AC-19 แยกชนิดใหม่เป็น direct 71 · import 56 · tail 2 · indirect 33 โดย site recall ยัง 1.0000 (125/125) และ precision 0.9843 (125/127 — มี 2 site ที่เรายุบ import ได้แต่นำ objdump ไม่นับเป็น direct call)
 - ไม่อยู่ในขอบเขต: การ resolve indirect (vtable/IAT/`mov rax,[rip+x]; call rax`), jump table, ข้ามไฟล์/ข้ามโมดูล, ordering ตามเวลา
 ### AC-18 Graph diff (M2 slice 2)
 - input: call graph JSON 2 ไฟล์ (`calls --json`) หรือ PE 2 ไฟล์ (สร้างกราฟให้ในตัว)
@@ -212,6 +212,14 @@
 - ผ่านเมื่อ: self-diff ให้ **0 change ทุกหมวด** และ unchanged = จำนวน edge ทั้งหมด; กราฟที่เลื่อน address ทั้งบล็อก (+0x1000, body เดิม) ต้องได้ moved ครบ **100%** และ edge unchanged 100%, added/removed = 0; การเพิ่ม/ลบ node ต้องรายงานจำนวนตรง; deterministic
 - ผลวัด (b.exe): self `nodes 0/0/0/0 · edges 0/0/=127`; shifted `moved 88/88 · edges 0/0/=127`; ลบ 1 node → removed 1; b vs a `+1503 nodes / -84 / ~4 similar · edges +5149 -127 =0` และเมื่อ `--ignore-thunks` edge ที่เพิ่มลดเหลือ `+781` (ตัด thunk 4,368 ออกจาก a.exe)
 - ข้อจำกัด: `similar` เป็น heuristic (size+degree) อาจจับคู่ผิดได้ จึงรายงานแยกจาก moved; ยังไม่มีการจับคู่ด้วย instruction sequence similarity
+### AC-19 Import table / IAT resolution (M2 slice 3)
+- `loader.imports(data)` คืนรายการ import: `iat_address` (normalized VA เดียวกับ disasm), `module`, `name`, `ordinal` — อ่านจาก import directory + ILT (fallback IAT), รองรับ PE32/PE32+
+- call graph: (1) `call qword ptr [rip+disp]` / `[abs]` ที่ชี้ IAT slot → edge `kind=import` พร้อมชื่อ `module!name`, (2) call ไป stub ที่ body เป็น `jmp [IAT]` → ยุบเป็น import edge พร้อมชื่อ, (3) stub ที่เป็น `jmp <addr>` ยังคงเป็น `thunk`
+- ground truth: `objdump -p` ส่วน The Import Tables
+- ผ่านเมื่อ: จำนวน import entries ตรงกับ objdump **100%** ทั้งสองไฟล์; IAT address เรียงตามลำดับ; ชื่อใน edge ตรงกับตาราง import; indirect count ต้องลดลงหลัง resolve; ไม่มี edge import ที่ชื่อว่าง
+- ผลวัด: b.exe **45/45** entries ตรง objdump (IAT แรก 0xb278), a.exe **92/92**; call graph b.exe ได้ import 56 edges (54 site ตรงกับที่ objdump resolve เป็นชื่อ), indirect 35 → 33, edges 127 → 129
+- ข้อค้นพบ: a.exe มี 1,188 stubs ที่เป็น `jmp <addr>` (incremental-link thunks) **ไม่ใช่ IAT stub** จึงถูกต้องที่จะคงเป็น `thunk` 4,368 edges — สมมติฐานเดิมที่ว่าเป็น ILT stub ไม่ถูกต้อง
+- ไม่อยู่ในขอบเขต: delay-load import, bound import, ordinal-only ที่ไม่มีชื่อ, vtable / function pointer resolution
 ### AC-10 (ย้ายไป milestone M-API — ไม่ใช่ M1)
 - ไม่มี token -> 401; Host ไม่ใช่ localhost -> 403; Origin แปลกปลอม -> 403; ไม่มี CORS wildcard
 
@@ -441,3 +449,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v4.8: ปิด AC-14 + CLI รวมศูนย์. Rule enforcement: `schema.Finding` บังคับว่า rule ต้องลงทะเบียนตอนสร้าง, เพิ่ม `rules.disable/enable/enabled_rules`, `schema.enforce_rules()` กรอง finding ที่อ้าง rule ปิด (rule ปิดต้องไม่ปรากฏในผล) และเพิ่ม rule ใหม่ `pe.function.discover`, `pe.string.ascii`, `pe.string.utf16le`, `pe.string.xref`; แปลงผลด้วย `functions.to_findings()` / `strings.to_findings()` โดย xref แต่ละจุดเป็น `Evidence(space=va, xref=string_addr, rule=pe.string.xref)`. CLI: `reversesuite analyze <file>` รัน loader+functions+strings+xref จบเดียว (`--json` canonical, `--workers`, `--no-xref`, `--min-string-length`, `--disasm-out`) และ subcommand ใหม่ `strings`. เพิ่มเพดาน function discovery `MAX_FUNCTION_TEXT_BYTES = 32 MB` + diagnostic `text_too_large_for_functions` เพื่อไม่ให้ไฟล์ใหญ่ค้าง. ผลจริง: b.exe analyze = 199 findings (88 functions + 96 strings + 15 loader), 0 diagnostics; d.exe (74.5 MB) analyze = 796 findings, 2 diagnostics, **0.77 s**. unittest 50/50 OK.
 - v4.9: เปิด M2 slice 1 — call graph (`src/reversesuite/callgraph.py`) + rule `pe.callgraph.edge` + subcommand `reversesuite calls` และรวม edge เข้า `analyze` (b.exe: findings 199 → 326, edges 127). ผล AC-17: recall 1.0000 / precision 1.0000 เทียบ objdump บน b_unstripped, indirect 35 ถูกนับแยกไม่ปนเป็น edge, tail 2/2 ชี้ node จริง, unittest 62/62 OK
 - v4.10: M2 slice 2 — diff engine (`src/reversesuite/diff.py`), `node_info` (size + body sha256) ใน graph JSON, subcommand `reversesuite diff <a> <b> [--json] [--ignore-thunks]` รับได้ทั้ง JSON และ PE. ผล AC-18: self-diff 0 change (unchanged 127/127), shifted graph moved 88/88 + edges unchanged 127/127, b vs a +1503/-84/~4 nodes และ edges +5149/-127 (ignore-thunks เหลือ +781), unittest 70/70 OK
+- v4.11: M2 slice 3 — import table + IAT resolution (`loader.imports`, edge kind `import`). b.exe 45/45 import entries ตรง objdump, a.exe 92/92; call graph b.exe direct 71 / import 56 / tail 2 / indirect 33 (site recall 1.0000, precision 0.9843), edges 129. พบว่า a.exe ใช้ incremental-link thunks (`jmp <addr>`) 1,188 ตัว ไม่ใช่ IAT stub จึงคง thunk 4,368 edges ตามจริง. unittest 75/75 OK

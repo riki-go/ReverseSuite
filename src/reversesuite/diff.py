@@ -163,15 +163,15 @@ def diff_graphs(v1: dict, v2: dict, ignore_thunks: bool = False) -> DiffResult:
         if addr not in reverse:
             result.added_nodes.append(NodeChange(addr, None, n2.get("size", 0), n2.get("sha256", "")))
 
-    def key1(e) -> Tuple[int, Optional[int], str]:
+    def key1(e) -> Tuple[int, Optional[int], str, Optional[str]]:
         """Edges are compared in v1 address space; v2 edges are mapped back."""
-        return (e["caller"], e.get("callee"), e.get("kind", ""))
+        return (e["caller"], e.get("callee"), e.get("kind", ""), e.get("name"))
 
-    def key2(e) -> Tuple[int, Optional[int], str]:
+    def key2(e) -> Tuple[int, Optional[int], str, Optional[str]]:
         caller = reverse.get(e["caller"], e["caller"])
         callee = e.get("callee")
         callee = reverse.get(callee, callee) if callee is not None else None
-        return (caller, callee, e.get("kind", ""))
+        return (caller, callee, e.get("kind", ""), e.get("name"))
 
     counts1 = Counter(key1(e) for e in edges1)
     counts2 = Counter(key2(e) for e in edges2)

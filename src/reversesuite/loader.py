@@ -214,6 +214,81 @@ def _parse_imports(data: bytes, sections: List[Section]) -> Tuple[List[str], int
     return (dlls, entries)
 
 
+@dataclass
+class ImportEntry:
+    iat_address: int
+    module: str
+    name: str
+    ordinal: bool = False
+
+    def as_dict(self) -> dict:
+        return {"iat_address": self.iat_address, "module": self.module,
+                "name": self.name, "ordinal": self.ordinal}
+
+
+def imports(data: bytes) -> List[ImportEntry]:
+    """Import directory -> IAT slot address (normalised space) + module/name."""
+    try:
+        sections = sections_of(data)
+        e_lfanew = _u32(data, 0x3C)
+        rva, size = _data_dir(data, e_lfanew, 1)
+        magic = _u16(data, e_lfanew + 24)
+    except Exception:
+        return []
+    if not rva or not size:
+        return []
+    off = _rva_to_off(sections, rva)
+    if off is None:
+        return []
+    width = 8 if magic == PE32P_MAGIC else 4
+    text_rva = next((s.virtual_address for s in sections if s.name == ".text"), 0)
+    norm = lambda value: 0x1000 + (value - text_rva)  # noqa: E731
+    out: List[ImportEntry] = []
+    cur = off
+    while cur + 20 <= len(data) and len(out) < MAX_IMPORT_ENTRIES:
+        name_rva = _u32(data, cur + 12)
+        if name_rva == 0:
+            break
+        name_off = _rva_to_off(sections, name_rva)
+        if name_off is None or name_off >= len(data):
+            break
+        end = data.find(b"\x00", name_off, min(name_off + 256, len(data)))
+        if end < 0:
+            break
+        module = data[name_off:end].decode("latin-1")
+        lookup_rva = _u32(data, cur) or _u32(data, cur + 16)
+        lookup_off = _rva_to_off(sections, lookup_rva) if lookup_rva else None
+        iat_rva = _u32(data, cur + 16)
+        if lookup_off is not None and iat_rva:
+            idx = 0
+            while lookup_off + width <= len(data) and idx < MAX_IMPORT_ENTRIES:
+                value = struct.unpack_from("<Q" if width == 8 else "<I", data, lookup_off)[0]
+                if value == 0:
+                    break
+                slot = norm(iat_rva + idx * width)
+                if value & (1 << (63 if width == 8 else 31)):
+                    out.append(ImportEntry(slot, module, "#%d" % (value & 0xFFFF), True))
+                else:
+                    hint_off = _rva_to_off(sections, value & 0x7FFFFFFF)
+                    if hint_off is None or hint_off + 2 >= len(data):
+                        idx += 1
+                        continue
+                    stop = data.find(b"\x00", hint_off + 2, min(hint_off + 258, len(data)))
+                    if stop < 0:
+                        idx += 1
+                        continue
+                    out.append(ImportEntry(slot, module,
+                                           data[hint_off + 2:stop].decode("latin-1")))
+                idx += 1
+                lookup_off += width
+        cur += 20
+    return out
+
+
+def sections_of(data: bytes) -> List[Section]:
+    return sections(data)
+
+
 def _parse_exports(data: bytes, sections: List[Section]) -> int:
     try:
         e_lfanew = _u32(data, 0x3C)

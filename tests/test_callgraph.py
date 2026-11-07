@@ -24,16 +24,23 @@ class CallGraphTests(unittest.TestCase):
 
     def test_direct_edges_and_sites(self):
         direct = [e for e in self.graph.edges if e.kind == callgraph.KIND_DIRECT]
-        self.assertEqual(len(direct), 125)
+        self.assertEqual(len(direct), 71)
         self.assertEqual(len({e.site for e in direct}), len(direct))
         self.assertTrue(all(e.caller < e.site for e in direct))
 
     def test_known_edge_present(self):
         sites = {e.site for e in self.graph.edges}
-        self.assertIn(0x1024, sites)
-        edge = next(e for e in self.graph.edges if e.site == 0x1024)
+        self.assertIn(0x104C, sites)
+        edge = next(e for e in self.graph.edges if e.site == 0x104C)
         self.assertEqual(edge.kind, callgraph.KIND_DIRECT)
-        self.assertEqual(edge.callee, 0x33C0)
+        self.assertEqual(edge.callee, 0x108E)
+
+    def test_iat_call_resolves_to_import_name(self):
+        edge = next(e for e in self.graph.edges if e.site == 0x1024)
+        self.assertEqual(edge.kind, callgraph.KIND_IMPORT)
+        self.assertIsNone(edge.callee)
+        self.assertTrue(edge.name.endswith("!fflush"), edge.name)
+        self.assertEqual(self.graph.import_calls, 56)
 
     def test_tail_calls_target_nodes(self):
         tails = [e for e in self.graph.edges if e.kind == callgraph.KIND_TAIL]
@@ -41,7 +48,7 @@ class CallGraphTests(unittest.TestCase):
         self.assertTrue(all(e.callee in self.graph.nodes for e in tails))
 
     def test_indirect_calls_never_become_edges(self):
-        self.assertEqual(self.graph.indirect_calls, 35)
+        self.assertEqual(self.graph.indirect_calls, 33)
         self.assertTrue(all(e.kind != callgraph.KIND_INDIRECT for e in self.graph.edges))
 
     def test_deterministic(self):
@@ -53,7 +60,7 @@ class CallGraphTests(unittest.TestCase):
         self.assertEqual(len(items), len(self.graph.edges))
         self.assertTrue(all(i.rule == callgraph.RULE_EDGE for i in items))
         sites = {i.evidence[0].offset for i in items}
-        self.assertIn(0x1024, sites)
+        self.assertIn(0x104C, sites)
 
     def test_disabled_rule_filters_edges(self):
         items = callgraph.to_findings(self.graph)
