@@ -37,6 +37,8 @@ token is required in the `Authorization` header (never in the URL).
 ## Desktop app (Tauri v2)
 
 Requirements: Python venv with this project installed, Node 18+, Rust stable,
+MinGW-w64 (for the AC-2/repro harnesses; `tools/` is intentionally **not tracked in
+git** — install it under `tools/mingw64` or point `OBJDUMP`/`GCC` at your own copy),
 WebView2 runtime (preinstalled on Windows 11).
 
 ```powershell
