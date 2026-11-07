@@ -27,6 +27,7 @@ token is required in the `Authorization` header (never in the URL).
 ## Documentation
 
 - คู่มือภาษาไทย: [docs/USER_MANUAL_TH.md](docs/USER_MANUAL_TH.md)
+- AI skills registry (index + template): [skills/README.md](skills/README.md)
 
 ## Features
 
