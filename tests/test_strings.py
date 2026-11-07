@@ -92,6 +92,15 @@ class XrefTests(unittest.TestCase):
         by_addr = {s.address: s for s in found}
         self.assertIn(0x167B, by_addr[0x5000].xrefs)
 
+    def test_parallel_matches_serial(self):
+        data = frozen("a.exe")
+        found = strings.extract(data)
+        text = loader.text_bytes(data)[:200000]
+        serial = strings.find_xrefs(text, found, workers=1, window=8192)
+        parallel = strings.find_xrefs(text, found, workers=3, window=8192)
+        self.assertEqual(serial, parallel)
+        self.assertGreater(len(serial), 0)
+
     def test_xrefs_empty_without_strings(self):
         self.assertEqual(strings.find_xrefs(b"\x90", []), {})
 

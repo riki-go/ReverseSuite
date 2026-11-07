@@ -13,6 +13,7 @@ import bisect
 import re
 import struct
 from dataclasses import dataclass, field
+from concurrent.futures import ProcessPoolExecutor
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import capstone
@@ -23,6 +24,8 @@ MIN_LENGTH = 4
 ASCII_PRINTABLE = frozenset(list(range(0x20, 0x7F)) + [0x09])
 IMAGE_SCN_MEM_EXECUTE = 0x20000000
 MAX_STRINGS = 200000
+XREF_TAIL = 15
+XREF_WORKERS_DEFAULT = 6
 
 
 @dataclass(frozen=True)
@@ -138,31 +141,62 @@ def _ref_targets(insn: capstone.CsInsn) -> List[int]:
     return targets
 
 
-def find_xrefs(text: bytes, strings: Sequence[ExtractedString],
-               base: int = disasm.BASE_ADDRESS) -> Dict[int, Tuple[int, ...]]:
-    """Map string address -> sorted code addresses that reference it."""
-    if not strings:
-        return {}
-    spans = sorted((s.address, s.address + s.length * (2 if s.encoding == "utf16le" else 1), s.address)
-                   for s in strings)
+def _scan_window(payload) -> Dict[int, List[int]]:
+    """Worker: find string references inside one window of .text."""
+    blob, base, spans = payload
     starts = [sp[0] for sp in spans]
-    hits: Dict[int, List[int]] = {}
     engine = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     engine.detail = True
-    for insn in disasm.iter_instructions(text, base, engine):
+    hits: Dict[int, List[int]] = {}
+    for insn in engine.disasm(blob, base):
         for target in _ref_targets(insn):
             idx = bisect.bisect_right(starts, target) - 1
             if idx < 0:
                 continue
             lo, hi, key = spans[idx]
             if lo <= target < hi:
-                hits.setdefault(key, []).append(insn.address)
+                bucket = hits.get(key)
+                if bucket is None:
+                    hits[key] = [insn.address]
+                elif insn.address not in bucket:
+                    bucket.append(insn.address)
+    return hits
+
+
+def _xref_windows(text: bytes, base: int, spans, window: int = disasm.WINDOW) -> Iterable[tuple]:
+    """Fixed-size windows with a 15-byte tail so boundary instructions still decode."""
+    for start in range(0, len(text), window):
+        piece = text[start:start + window + XREF_TAIL]
+        yield piece, base + start, spans
+
+
+def find_xrefs(text: bytes, strings: Sequence[ExtractedString],
+               base: int = disasm.BASE_ADDRESS, workers: int = 1,
+               window: int = disasm.WINDOW) -> Dict[int, Tuple[int, ...]]:
+    """Map string address -> sorted code addresses that reference it."""
+    if not strings:
+        return {}
+    spans = sorted((s.address, s.address + s.length * (2 if s.encoding == "utf16le" else 1), s.address)
+                   for s in strings)
+    starts = [s.address for s in strings]
+    hits: Dict[int, List[int]] = {}
+    if workers and workers > 1 and len(text) > window:
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for part in ex.map(_scan_window, _xref_windows(text, base, spans, window)):
+                for key, sites in part.items():
+                    bucket = hits.setdefault(key, [])
+                    bucket.extend(sites)
+    else:
+        for part in _xref_windows(text, base, spans, window):
+            for key, sites in _scan_window(part).items():
+                bucket = hits.setdefault(key, [])
+                bucket.extend(sites)
+    del starts
     return {k: tuple(sorted(set(v))) for k, v in hits.items()}
 
-
-def extract_with_xrefs(data: bytes, min_length: int = MIN_LENGTH) -> List[ExtractedString]:
+def extract_with_xrefs(data: bytes, min_length: int = MIN_LENGTH, workers: int = 1) -> List[ExtractedString]:
     strings = extract(data, min_length)
-    xrefs = find_xrefs(loader.text_bytes(data), strings)
+    xrefs = find_xrefs(loader.text_bytes(data), strings, workers=workers)
     if not xrefs:
         return strings
     return [ExtractedString(s.address, s.value, s.encoding, s.section, s.length, xrefs.get(s.address, ()))
