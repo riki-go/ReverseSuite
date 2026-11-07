@@ -133,6 +133,14 @@ def parse(data: bytes) -> AnalysisResult:
                 evidence=[Evidence(offset=0, space="file", rule="pe.export.parse")],
             ))
 
+        packed = packer_hint(data, sections)
+        if packed:
+            findings.append(Finding(
+                kind="packer", value=packed, confidence_permille=1000, level="L0",
+                rule="pe.packer.upx" if packed == "upx" else "pe.packer.upx",
+                evidence=[Evidence(offset=0, space="file", rule="pe.packer.upx")],
+            ))
+
     except LoadError as exc:
         return _failed(data, exc.code, exc.message, exc.offset)
 
@@ -171,6 +179,14 @@ def _data_dir(data: bytes, e_lfanew: int, index: int) -> Tuple[int, int]:
     if off + 8 > len(data):
         return (0, 0)
     return (_u32(data, off), _u32(data, off + 4))
+
+
+def packer_hint(data: bytes, sections: List[Section]) -> Optional[str]:
+    """Cheap packed-binary hint from section names and known packer magic."""
+    names = {s.name.upper() for s in sections}
+    if {"UPX0", "UPX1"} & names or b"UPX!" in data[:0x4000]:
+        return "upx"
+    return None
 
 
 def _parse_imports(data: bytes, sections: List[Section]) -> Tuple[List[str], int]:

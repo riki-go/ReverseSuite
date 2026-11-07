@@ -516,3 +516,8 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
 - v5.0: เปิด M5 — interactive SVG graph ใน UI (Vanilla JS + `createElementNS`, ไม่มีไลบรารีภายนอก, CSP เดิม). ปุ่ม view call graph / view diff graph / clear; ลาก node, pan, wheel zoom 0.25–4x; สีตาม kind และ added/removed. ตรวจด้วย `node --check` + Chrome headless (element ครบ, pill แสดงผลจริง, console ว่าง). unittest 112/112; MSI 14:12 → 14,295,040 B sha256 d003d922...
 - v5.1: ปิด AC-2 — เพิ่ม `src/reversesuite/disasm_compare.py` (+ `spikes/ac2_metrics.py`, `tests/test_disasm_compare.py`). วัดแบบ per-address decode เทียบ objdump 2.47: a.exe 0.999122, b.exe 0.998138, b_unstripped.exe 0.998138 (เกณฑ์ ≥0.99). unittest 119/119 OK
 - v5.2: ปิด AC-11/AC-12 — เพิ่ม `sandbox.py` (Job Object ผ่าน ctypes, suspended-start, memory/process/time caps) + `tests/test_sandbox.py` 7 เคส. หลักฐาน: memhog cap → exit 2 ที่ 0.02 s, spin → killed ที่ 1.02 s, spawner → `child_spawn_failed=1816`, ไม่มี process ค้าง. unittest 126/126 OK
+- v5.3: ปิด AC-4, AC-6, AC-8 —
+  - **AC-4** `build/repro_check.py`: build `fixtures/src/prog.c` สองครั้งใน temp dir ต่างกันด้วย recipe ที่ล็อก (`gcc -O2 -s -Wl,--no-insert-timestamp -ffile-prefix-map=<root>=.`) → sha256 เท่ากัน `9f7d3b5f100f9e51…` (MSVC ยังไม่อยู่ในขอบเขตตามที่ PLAN เคยบันทึก)
+  - **AC-6** เพิ่ม `loader.packer_hint()` (section `UPX0/UPX1` หรือ magic `UPX!`) → finding `kind=packer, value=upx, rule=pe.packer.upx`; `b_packed.exe` ตรวจได้ 1 finding, `b.exe` ได้ 0
+  - **AC-8** ตาราง exit code: ok=0, degraded=2 (ไฟล์ตัดท้าย), failed=3 (PE เสีย), usage=4 (ไฟล์ไม่มี/ไม่ระบุ subcommand) — ครอบด้วย `tests/test_packed_cli.py`
+  - unittest 134/134 OK
