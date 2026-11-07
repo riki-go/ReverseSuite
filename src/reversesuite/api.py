@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 import tempfile
 import urllib.error
 import urllib.request
@@ -31,6 +32,8 @@ MAX_BODY = 64 * 1024
 URL_MAX_BYTES = 256 * 1024 * 1024
 URL_TIMEOUT = 30
 URL_HEADERS = {"User-Agent": "ReverseSuite/0.1 (+http://127.0.0.1)"}
+RATE_LIMIT_REQUESTS = 60
+RATE_LIMIT_WINDOW_S = 60.0
 
 
 def watch_parent(parent_pid: int) -> None:
@@ -123,6 +126,48 @@ def resolve_path(root: Optional[Path], raw: str):
         except ValueError:
             return None, "path_not_allowed"
     return candidate, None
+
+
+def _host_is_loopback(host: str) -> bool:
+    host = (host or "").strip().lower().strip("[]")
+    if host in ("localhost", "::1"):
+        return True
+    return host.startswith("127.")
+
+
+def _host_is_private(host: str) -> bool:
+    import ipaddress
+    try:
+        address = ipaddress.ip_address((host or "").strip().strip("[]"))
+    except ValueError:
+        return False
+    return address.is_private or address.is_link_local or address.is_reserved
+
+
+def url_allowed(raw: str, allow_private: bool = False) -> bool:
+    """Block non-loopback private targets unless explicitly allowed (SSRF guard)."""
+    parts = urlsplit(raw)
+    host = parts.hostname or ""
+    if not host:
+        return False
+    if _host_is_loopback(host):
+        return True
+    if allow_private:
+        return True
+    if _host_is_private(host):
+        return False
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return True
+    for info in infos:
+        address = info[4][0]
+        if _host_is_loopback(address):
+            return True
+        if _host_is_private(address):
+            return False
+    return True
 
 
 def is_url(raw: str) -> bool:
@@ -222,6 +267,8 @@ th{background:#f7f7f7}.muted{color:#666}
 <div class="row">
   <button id="gcall">view call graph</button>
   <button id="gdiff">view diff graph</button>
+  <button id="gexport">export svg</button>
+  <button id="gpng">export png</button>
   <button id="gclear">clear</button>
   <span id="gstate" class="muted"></span>
 </div>
@@ -521,6 +568,63 @@ th{background:#f7f7f7}.muted{color:#666}
       nodes.length + " nodes / " + edges.length + " edges (added+removed)");
   };
 
+  function snapshotSvg() {
+    var svg = $("graph");
+    var clone = svg.cloneNode(true);
+    clone.setAttribute("xmlns", NS);
+    clone.setAttribute("width", String(svg.clientWidth || 900));
+    clone.setAttribute("height", String(svg.clientHeight || 380));
+    clone.setAttribute("viewBox", "0 0 " + (svg.clientWidth || 900) + " " + (svg.clientHeight || 380));
+    var style = document.createElementNS(NS, "style");
+    style.textContent = "text{font:10px ui-monospace,monospace;fill:#111}";
+    clone.insertBefore(style, clone.firstChild);
+    return clone;
+  }
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  $("gexport").onclick = function () {
+    if (!current.nodes.length) { $("gstate").textContent = "nothing to export"; return; }
+    var clone = snapshotSvg();
+    var xml = new XMLSerializer().serializeToString(clone);
+    downloadBlob(new Blob([xml], { type: "image/svg+xml" }), "reversesuite-graph.svg");
+    $("gstate").textContent = "svg exported";
+  };
+
+  $("gpng").onclick = function () {
+    if (!current.nodes.length) { $("gstate").textContent = "nothing to export"; return; }
+    var clone = snapshotSvg();
+    var width = Number(clone.getAttribute("width"));
+    var height = Number(clone.getAttribute("height"));
+    var xml = new XMLSerializer().serializeToString(clone);
+    var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      var ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob(function (blob) {
+        if (blob) downloadBlob(blob, "reversesuite-graph.png");
+        $("gstate").textContent = "png exported";
+      }, "image/png");
+    };
+    img.onerror = function () { $("gstate").textContent = "png export failed"; };
+    img.src = url;
+  };
+
   $("gclear").onclick = clearGraph;
   $("report").onclick = function () {
     $("diffstate").textContent = "building report...";
@@ -549,9 +653,11 @@ th{background:#f7f7f7}.muted{color:#666}
 })();
 </script></body></html>"""
 
-def make_handler(token: str, root: Optional[Path], workers: int = 1):
+def make_handler(token: str, root: Optional[Path], workers: int = 1,
+                 rate_limit: int = RATE_LIMIT_REQUESTS, allow_private_urls: bool = False):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ReverseSuite/0.3"
+        buckets: dict = {}
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):
@@ -612,6 +718,15 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1):
             if not self._authorised():
                 self._send(401, {"error": "unauthorised"})
                 return False
+            if rate_limit > 0:
+                client = self.client_address[0] if self.client_address else "?"
+                now = time.monotonic()
+                stamps = [t for t in self.buckets.get(client, []) if now - t < RATE_LIMIT_WINDOW_S]
+                if len(stamps) >= rate_limit:
+                    self._send(429, {"error": "rate_limited"})
+                    return False
+                stamps.append(now)
+                self.buckets[client] = stamps
             return True
 
         def do_GET(self) -> None:
@@ -659,6 +774,9 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1):
                 tempdir = None
                 try:
                     if is_url(raw_path):
+                        if not url_allowed(raw_path, allow_private_urls):
+                            self._send(400, {"error": "url_host_not_allowed"})
+                            return
                         try:
                             target, tempdir = download_to_temp(raw_path)
                         except FetchError as exc:
@@ -728,9 +846,11 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1):
 
 
 def serve(root: Optional[Path] = None, token: Optional[str] = None, port: int = 0,
-          workers: int = 1) -> Tuple[ThreadingHTTPServer, str, threading.Thread]:
+          workers: int = 1, rate_limit: int = RATE_LIMIT_REQUESTS,
+          allow_private_urls: bool = False) -> Tuple[ThreadingHTTPServer, str, threading.Thread]:
     token = token or new_token()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(token, root, workers))
+    server = ThreadingHTTPServer(("127.0.0.1", port),
+                                 make_handler(token, root, workers, rate_limit, allow_private_urls))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, token, thread

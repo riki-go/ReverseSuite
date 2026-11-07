@@ -51,6 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--workers", type=int, default=1)
     sv.add_argument("--token", default="", help="fixed token (default: random per session)")
     sv.add_argument("--parent-pid", type=int, default=0, help="exit when this process dies")
+    sv.add_argument("--rate-limit", type=int, default=api_mod.RATE_LIMIT_REQUESTS,
+                    help="requests per minute per client (0 disables)")
+    sv.add_argument("--allow-private-urls", action="store_true",
+                    help="allow URLs that resolve to private addresses")
     rp = sub.add_parser("report", help="render a diff report as Markdown or HTML")
     rp.add_argument("left")
     rp.add_argument("right")
@@ -80,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"root is not a directory: {root}", file=sys.stderr)
                 return EXIT_USAGE
         try:
-            server, token, thread = api_mod.serve(root, args.token or None, args.port, args.workers)
+            server, token, thread = api_mod.serve(root, args.token or None, args.port, args.workers,
+                                                  args.rate_limit, args.allow_private_urls)
         except OSError as exc:
             print(f"cannot bind: {exc}", file=sys.stderr)
             return EXIT_USAGE

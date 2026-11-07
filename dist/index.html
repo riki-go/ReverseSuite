@@ -50,6 +50,8 @@ th{background:#f7f7f7}.muted{color:#666}
 <div class="row">
   <button id="gcall">view call graph</button>
   <button id="gdiff">view diff graph</button>
+  <button id="gexport">export svg</button>
+  <button id="gpng">export png</button>
   <button id="gclear">clear</button>
   <span id="gstate" class="muted"></span>
 </div>
@@ -347,6 +349,63 @@ th{background:#f7f7f7}.muted{color:#666}
     legend([["added", "#16a34a"], ["removed", "#dc2626"]]);
     drawGraph(nodes, edges, { added: "#16a34a", removed: "#dc2626" },
       nodes.length + " nodes / " + edges.length + " edges (added+removed)");
+  };
+
+  function snapshotSvg() {
+    var svg = $("graph");
+    var clone = svg.cloneNode(true);
+    clone.setAttribute("xmlns", NS);
+    clone.setAttribute("width", String(svg.clientWidth || 900));
+    clone.setAttribute("height", String(svg.clientHeight || 380));
+    clone.setAttribute("viewBox", "0 0 " + (svg.clientWidth || 900) + " " + (svg.clientHeight || 380));
+    var style = document.createElementNS(NS, "style");
+    style.textContent = "text{font:10px ui-monospace,monospace;fill:#111}";
+    clone.insertBefore(style, clone.firstChild);
+    return clone;
+  }
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  $("gexport").onclick = function () {
+    if (!current.nodes.length) { $("gstate").textContent = "nothing to export"; return; }
+    var clone = snapshotSvg();
+    var xml = new XMLSerializer().serializeToString(clone);
+    downloadBlob(new Blob([xml], { type: "image/svg+xml" }), "reversesuite-graph.svg");
+    $("gstate").textContent = "svg exported";
+  };
+
+  $("gpng").onclick = function () {
+    if (!current.nodes.length) { $("gstate").textContent = "nothing to export"; return; }
+    var clone = snapshotSvg();
+    var width = Number(clone.getAttribute("width"));
+    var height = Number(clone.getAttribute("height"));
+    var xml = new XMLSerializer().serializeToString(clone);
+    var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      var ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob(function (blob) {
+        if (blob) downloadBlob(blob, "reversesuite-graph.png");
+        $("gstate").textContent = "png exported";
+      }, "image/png");
+    };
+    img.onerror = function () { $("gstate").textContent = "png export failed"; };
+    img.src = url;
   };
 
   $("gclear").onclick = clearGraph;

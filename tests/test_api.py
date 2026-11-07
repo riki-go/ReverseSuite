@@ -15,6 +15,7 @@ class ApiTests(unittest.TestCase):
     def setUpClass(cls):
         cls.server, cls.token, cls.thread = api.serve(ROOT)
         cls.open_server, cls.open_token, cls.open_thread = api.serve(None)
+        cls.limited, cls.limited_token, cls.limited_thread = api.serve(None, rate_limit=3)
         cls.port = cls.server.server_address[1]
 
     @classmethod
@@ -23,6 +24,8 @@ class ApiTests(unittest.TestCase):
         cls.server.server_close()
         cls.open_server.shutdown()
         cls.open_server.server_close()
+        cls.limited.shutdown()
+        cls.limited.server_close()
 
     def open_request(self, method, path, body=None, token=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.open_server.server_address[1], timeout=60)
@@ -304,12 +307,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 204)
         self.assertEqual(text, "")
 
+    def test_rate_limit_returns_429(self):
+        port = self.limited.server_address[1]
+        codes = []
+        for _ in range(5):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+            conn.putrequest("GET", "/rules", skip_host=True)
+            conn.putheader("Host", "127.0.0.1:%d" % port)
+            conn.putheader("Authorization", "Bearer " + self.limited_token)
+            conn.endheaders()
+            codes.append(conn.getresponse().status)
+            conn.close()
+        self.assertIn(429, codes, codes)
+        self.assertIn(200, codes, codes)
+
+    def test_private_url_target_is_rejected(self):
+        status, text, _ = self.open_request("POST", "/analyze", token=self.open_token,
+                                             body={"path": "http://10.0.0.1/evil.exe"})
+        self.assertEqual(status, 400)
+        self.assertIn("url_host_not_allowed", text)
+
     def test_ui_exposes_interactive_graph(self):
         status, text, _ = self.request("GET", "/")
         self.assertEqual(status, 200)
         self.assertIn('<svg id="graph"', text)
         self.assertIn("view call graph", text)
         self.assertIn("view diff graph", text)
+        self.assertIn("export svg", text)
+        self.assertIn("export png", text)
+        self.assertIn("XMLSerializer", text)
         self.assertIn("addEventListener(\"wheel\"", text)
         self.assertIn("http://www.w3.org/2000/svg", text)
         self.assertNotIn("d3", text)

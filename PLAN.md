@@ -521,3 +521,8 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - **AC-6** เพิ่ม `loader.packer_hint()` (section `UPX0/UPX1` หรือ magic `UPX!`) → finding `kind=packer, value=upx, rule=pe.packer.upx`; `b_packed.exe` ตรวจได้ 1 finding, `b.exe` ได้ 0
   - **AC-8** ตาราง exit code: ok=0, degraded=2 (ไฟล์ตัดท้าย), failed=3 (PE เสีย), usage=4 (ไฟล์ไม่มี/ไม่ระบุ subcommand) — ครอบด้วย `tests/test_packed_cli.py`
   - unittest 134/134 OK
+- v5.4: M3/M5 hardening + ops —
+  - API: **rate limit** 60 req/min ต่อ client (`429 rate_limited`, ปรับได้ด้วย `--rate-limit`, 0 = ปิด) และ **SSRF guard** สำหรับ URL: loopback อนุญาต, private/link-local/reserved ปฏิเสธ (`url_host_not_allowed`) เว้นแต่ `--allow-private-urls`
+  - UI: ปุ่ม **export svg** (`XMLSerializer`) และ **export png** (SVG → Image → canvas → blob) โดยไม่เพิ่มไลบรารี
+  - Ops: `.github/workflows/ci.yml` (windows runner: venv + tests + repro check + installer), `LICENSE` (MIT), version bump `0.1.0 → 0.2.0` (`ENGINE_BUILD_ID=m5-0.2.0`)
+  - unittest 136/136 OK; MSI `ReverseSuite_0.2.0_x64_en-US.msi` 14,299,136 B sha256 abe7cfeda09e9aa7dbbad15e33063f3800bf05bb8aeb4aaab3825f6726496b65
