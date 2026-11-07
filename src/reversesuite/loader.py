@@ -227,6 +227,30 @@ def _parse_exports(data: bytes, sections: List[Section]) -> int:
         return 0
     count = _u32(data, off + 20)
     return count if count <= MAX_EXPORTS else MAX_EXPORTS
+def sections(data: bytes) -> List[Section]:
+    """Section headers only (no full parse); raises LoadError on a malformed table."""
+    _need(data, 0x3C, 4, "pe.header.truncated", "e_lfanew field")
+    e = _u32(data, 0x3C)
+    _need(data, e, 24, "pe.coff.truncated", "COFF header")
+    nsec = _u16(data, e + 6)
+    opt_size = _u16(data, e + 20)
+    if nsec > MAX_SECTIONS:
+        raise LoadError("pe.sectab.cap_exceeded", f"section count {nsec} exceeds cap {MAX_SECTIONS}", e + 6)
+    table = e + 4 + 20 + opt_size
+    if table + nsec * 40 > len(data):
+        raise LoadError("pe.sectab.truncated", "section table extends past end of file", table)
+    out: List[Section] = []
+    for i in range(nsec):
+        off = table + i * 40
+        name = data[off:off + 8].rstrip(b"\x00").decode("latin-1")
+        vsize = _u32(data, off + 8)
+        vaddr = _u32(data, off + 12)
+        raw_size = _u32(data, off + 16)
+        raw_ptr = _u32(data, off + 20)
+        chars = _u32(data, off + 36)
+        out.append(Section(i + 1, name, vaddr, vsize, raw_ptr, raw_size, chars))
+    return out
+
 
 def text_bytes(data: bytes) -> bytes:
     """Return the raw bytes of the .text section."""
