@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     dis.add_argument("--gzip", action="store_true")
     dis.add_argument("--slim", action="store_true", help="write only address+mnemonic")
     dis.add_argument("--limit-bytes", type=int, default=0, help="disassemble only the first N bytes of .text")
+    dis.add_argument("--workers", type=int, default=1, help="parallel worker processes")
     args = parser.parse_args(argv)
 
     if args.cmd == "disasm":
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.limit_bytes:
             text = text[: args.limit_bytes]
         try:
-            summary = disasm.write_stream(text, __import__("pathlib").Path(args.out), args.gzip, args.slim)
+            summary = disasm.write_stream(text, __import__("pathlib").Path(args.out), args.gzip, args.slim, workers=args.workers)
         except Exception as exc:
             print(f"internal error: {exc.__class__.__name__}", file=sys.stderr)
             return EXIT_INTERNAL

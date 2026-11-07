@@ -9,6 +9,7 @@ Design notes (M1b):
 from __future__ import annotations
 
 import gzip
+from concurrent.futures import ProcessPoolExecutor
 import json
 import time
 from contextlib import contextmanager
@@ -58,8 +59,57 @@ def open_writer(path: Path, use_gzip: bool = False):
         handle.close()
 
 
+def _window_lines(payload):
+    """Worker: decode one fixed window and return serialized JSONL bytes."""
+    blob, base, slim = payload
+    engine = make_engine()
+    out = bytearray()
+    end = base + len(blob)
+    for insn in engine.disasm(blob, base):
+        if insn.address + insn.size > end:
+            break
+        out += format_line(insn, slim)
+    return bytes(out)
+
+
+def _windows(blob: bytes):
+    for start in range(0, len(blob), WINDOW):
+        yield blob[start:start + WINDOW], BASE_ADDRESS + start
+
+
+def write_stream_parallel(blob: bytes, out_path: Path, use_gzip: bool = False, slim: bool = False,
+                          workers: int = 2) -> dict:
+    tasks = [(piece, base, slim) for piece, base in _windows(blob)]
+    started = time.perf_counter()
+    count = 0
+    written = 0
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        chunks = ex.map(_window_lines, tasks)
+        with open_writer(out_path, use_gzip) as fh:
+            for chunk in chunks:
+                fh.write(chunk)
+                written += len(chunk)
+                count += chunk.count(b"\n")
+    wall = time.perf_counter() - started
+    result = {
+        "out": str(out_path),
+        "gzip": use_gzip,
+        "slim": slim,
+        "workers": workers,
+        "instructions": count,
+        "jsonl_raw_bytes": written,
+        "file_bytes": out_path.stat().st_size if out_path.exists() else 0,
+        "wall_s": round(wall, 3),
+        "instr_per_s": round(count / wall, 0) if wall else 0,
+    }
+    if use_gzip and written:
+        result["gzip_over_raw_pct"] = round(100.0 * result["file_bytes"] / written, 2)
+    return result
+
 def write_stream(blob: bytes, out_path: Path, use_gzip: bool = False, slim: bool = False,
-                 md: Optional[capstone.Cs] = None) -> dict:
+                 md: Optional[capstone.Cs] = None, workers: int = 1) -> dict:
+    if workers and workers > 1:
+        return write_stream_parallel(blob, out_path, use_gzip, slim, workers)
     engine = md or make_engine()
     count = 0
     written = 0

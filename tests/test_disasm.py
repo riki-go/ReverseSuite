@@ -58,6 +58,16 @@ class StreamingTests(unittest.TestCase):
             disasm.write_stream(blob, b)
             self.assertEqual(a.read_bytes(), b.read_bytes())
 
+    def test_parallel_matches_single(self):
+        blob = sample_text(5 * 1024 * 1024)  # 3 windows of 2MB
+        with tempfile.TemporaryDirectory() as tmp:
+            single = Path(tmp) / "single.jsonl"
+            parallel = Path(tmp) / "parallel.jsonl"
+            s1 = disasm.write_stream(blob, single)
+            s4 = disasm.write_stream(blob, parallel, workers=3)
+            self.assertEqual(single.read_bytes(), parallel.read_bytes())
+        self.assertEqual(s1["instructions"], s4["instructions"])
+        self.assertEqual(s4["workers"], 3)
 
 if __name__ == "__main__":
     unittest.main()
