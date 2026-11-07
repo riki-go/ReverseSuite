@@ -1,7 +1,29 @@
-# ReverseSuite — PLAN v5.0 (M5 in progress)
+# ReverseSuite — PLAN v6.0 (Release 0.2.0, feature freeze)
 
 เกณฑ์ผูกกับ Definition of Done ของแต่ละ milestone ไม่ผูกกับจำนวนสัปดาห์
 
+## 0a. Release 0.2.0 — สรุปงานที่ปิดแล้ว (2026-11-07)
+
+| AC | หัวข้อ | ผลลัพธ์ |
+| --- | --- | --- |
+| AC-1/3/5/7a/7b/9/13/14 | loader, fixtures, cache, rules | ปิดก่อนหน้า (fixtures frozen + cache hit verified) |
+| AC-2 | disassembly ตรง objdump | a.exe 0.999122 · b.exe 0.998138 · b_unstripped 0.998138 (เกณฑ์ ≥0.99) |
+| AC-4 | reproducible build | gcc recipe → sha256 9f7d3b5f… เท่ากันสองรอบ |
+| AC-6 | packed | `pe.packer.upx` ตรวจ b_packed ได้ 1, b.exe 0 |
+| AC-8 | exit codes | 0 ok · 2 degraded · 3 failed · 4 usage |
+| AC-11 | Job Object sandbox | memhog exit2 @0.02s · spin killed @1.02s · spawner child blocked (1816) · ไม่มี process ค้าง |
+| AC-12 | loader caps | 97 sections → `pe.sectab.cap_exceeded`; table ล้น → `pe.sectab.truncated` |
+| AC-15 | function discovery | recall 1.000 · precision 0.989 (COFF truth 87) |
+| AC-16 | strings + xref | b.exe 96/96 · a.exe 478/484 · utf16 round-trip 100% |
+| AC-17/19 | call graph + IAT | b.exe site recall 1.000 · precision 0.984 · imports 45/45, 92/92 |
+| AC-18 | graph diff | self-diff 0 change · moved 88/88 · multiset edges |
+| AC-20 | reports | md/html deterministic · escape 100% |
+| AC-21/22 | UI + endpoints | token/Host/Origin guards · /diff /report · rate limit 429 · SSRF guard |
+| AC-23 | desktop wrapper | Tauri v2 + sidecar · MSI 14,299,136 B · install/uninstall rc 0 |
+| AC-24 | interactive graph | SVG drag/pan/zoom · export SVG/PNG |
+| M6-lite | indirect resolution | b.exe indirect 33→17 (16 edges, kind `indirect_resolved`, มี `via`) |
+
+คุณภาพ: unittest **137/137 OK** · MSI `ReverseSuite_0.2.0_x64_en-US.msi` sha256 `fd2723e6…`
 ## 0. Scope & Assumptions
 - วิเคราะห์เฉพาะไฟล์ที่ผู้ใช้มีสิทธิ์วิเคราะห์ (README + แจ้งตอนเปิดไฟล์)
 - core = static only ห้าม execute ไฟล์เป้าหมาย
@@ -532,3 +554,4 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - a.exe: ไม่เปลี่ยน (0 resolved) — register calls ในไฟล์นี้มาจาก vtable ใน `.data` ไม่ใช่ IAT จึงยังอยู่นอกขอบเขต
   - ไม่ได้นับ edge จาก provenance ที่เก่ากว่า 2 คำสั่ง เพราะทดลอง window 8 แล้วพบ false positive (เช่น `call r9` ที่ค่า r9 ถูก store ไม่ได้ถูกโหลด)
   - unittest 137/137 OK; MSI `0.2.0` rebuild 15:16 → 14,299,136 B sha256 fd2723e67375880019a220fa09588359da59c54244185fc90eaf64140f72ed7a
+- v6.0 (Release 0.2.0, feature freeze): รวมทุก AC ที่ปิดแล้วไว้ใน §0a, ประกาศหยุดเพิ่มฟีเจอร์ชั่วคราวเพื่อรอ UAT. ไม่แตะ M6 เต็มรูปแบบ (vtable/value-set) ตามคำสั่ง

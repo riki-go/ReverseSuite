@@ -13,3 +13,6 @@ src-tauri/binaries/*.exe
 src-tauri/binaries/tmp/
 build/pyi*/
 build/*.spec
+fixtures/src/big_*.c
+fixtures/build40*.bat
+fixtures/build_*.bat

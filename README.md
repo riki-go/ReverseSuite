@@ -59,6 +59,25 @@ What the wrapper does:
 The bundled installer lands in `src-tauri/target/release/bundle/msi/`
 (`ReverseSuite_0.2.0_x64_en-US.msi`).
 
+## Known limitations (0.2.0)
+
+- **MSI is not code-signed.** SmartScreen will warn on first install; signing needs a
+  real CA certificate, which is not part of this repository.
+- **Windowed run is unverified from the build host.** The build environment runs in
+  Windows session 0, so WebView2 cannot create a window there (0x80070578).
+  Headless checks cover the sidecar handshake, the API and the page DOM; the actual
+  window must be verified on a normal desktop. `desktop.log` records what happened.
+- **Indirect calls are only partly resolved.** A two-instruction register provenance
+  pass resolves `mov reg,[rip+IAT]; call reg` and `lea reg,[rip+fn]; call reg`
+  (b.exe: 16 edges). Calls through vtables or longer dataflow (a.exe: 17 remaining)
+  need full value-set analysis and are out of scope for 0.2.0.
+- **MSVC builds are not reproducible.** AC-4 covers the pinned MinGW recipe only.
+- **No multi-user hardening.** The API binds loopback with a session token, but the
+  desktop build accepts any absolute local path; on a shared machine run
+  `serve --root DIR` instead.
+- **URL analysis is static only.** Downloads are size-capped (256 MB), MZ-checked,
+  private targets blocked, and temp files removed — but nothing is executed or
+  AV-scanned.
 ## Tests
 
 ```powershell
