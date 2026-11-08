@@ -97,3 +97,21 @@ The bundled installer lands in `src-tauri/target/release/bundle/msi/`
 $env:PYTHONPATH = "src"
 & .venv\Scripts\python.exe -m unittest discover -s tests
 ```
+
+## Distribution package
+
+Build the distributable folder (installer + both manuals + docs + optional portable
+binaries) and its zip with:
+
+```powershell
+& .venv\Scripts\python.exe build\make_release.py
+```
+
+Output:
+
+- `dist/release/ReverseSuite-<version>/` — the folder to hand out
+- `dist/release/ReverseSuite-<version>-win64.zip` — the same folder, zipped
+
+The folder contains `ReverseSuite_<version>_x64_en-US.msi`, `manual/` (Thai and
+English manuals, `.md` + `.html`), `README.md`, `RELEASE_NOTES.md`, `LICENSE`,
+optional `portable/` binaries and `SHA256SUMS.txt`.

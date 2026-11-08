@@ -18,3 +18,4 @@ fixtures/build40*.bat
 fixtures/build_*.bat
 .pytest_cache/
 .mypy_cache/
+dist/release/
