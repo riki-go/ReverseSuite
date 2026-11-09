@@ -55,4 +55,4 @@ noting its presence. For every APK you get:
 
 ## License
 
-MIT. See `LICENSE`.
+Proprietary - all rights reserved. See `LICENSE`.

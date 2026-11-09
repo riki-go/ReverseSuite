@@ -55,4 +55,4 @@ only listing methods:
 
 ## License
 
-MIT. See `LICENSE`.
+Proprietary - all rights reserved. See `LICENSE`.

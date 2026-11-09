@@ -1,21 +1,47 @@
-MIT License
+Copyright (c) 2026 riki-go. All rights reserved.
 
-Copyright (c) 2026 ReverseSuite contributors
+PROPRIETARY SOFTWARE LICENSE - ALL RIGHTS RESERVED
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the 'Software'), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This repository, including all source code, documentation, fixtures, build
+scripts, binaries and design assets (the "Software"), is the exclusive
+property of the copyright holder.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. VIEWING
+   You may view the Software on this page for personal, non-commercial
+   evaluation and learning purposes only.
 
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. NO COPYING
+   You may not copy, reproduce, mirror, clone, download for redistribution,
+   publish, or otherwise make the Software available, in whole or in part,
+   in any form or by any means.
+
+3. NO MODIFICATION OR DERIVATIVE WORKS
+   You may not modify, adapt, translate, reverse engineer for reuse, merge,
+   or create derivative works from the Software.
+
+4. NO COMMERCIAL USE
+   You may not use the Software, in whole or in part, for any commercial
+   purpose, including internal business use, without a separate written
+   license from the copyright holder.
+
+5. NO SUBLICENSING
+   You may not sublicense, rent, lease, sell, or transfer the Software or
+   any rights granted under this notice.
+
+6. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+7. TERMINATION
+   Any violation of this notice terminates the viewing permission granted in
+   section 1 immediately and automatically.
+
+8. PERMISSIONS
+   Requests for any use beyond the scope above (including academic citation,
+   integration, or commercial licensing) must be obtained in writing from the
+   copyright holder, via https://github.com/riki-go
+
+SPDX-License-Identifier: LicenseRef-Proprietary

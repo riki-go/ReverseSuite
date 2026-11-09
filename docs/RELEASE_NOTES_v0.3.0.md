@@ -46,4 +46,4 @@ ReverseSuite now analyses four binary families in one tool:
 
 ## License
 
-MIT. See `LICENSE`.
+Proprietary - all rights reserved. See `LICENSE`.

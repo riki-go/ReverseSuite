@@ -48,4 +48,4 @@ Released: 2026-11-08
 
 ## License
 
-MIT. See `LICENSE`.
+Proprietary - all rights reserved. See `LICENSE`.

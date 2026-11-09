@@ -117,4 +117,4 @@ force-directed, and large graphs are capped at the first 400 nodes (the status l
 
 ---
 
-ReverseSuite v0.3.0 - MIT License.
+ReverseSuite v0.3.0 - Proprietary License.
