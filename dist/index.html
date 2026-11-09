@@ -99,25 +99,59 @@ th{background:#f7f7f7}.muted{color:#666}
 
   $("roothint").textContent = "backend: " + location.origin + " · accepts any absolute path or http(s) URL";
 
-  function call(route, payload) {
+  var ERROR_HINTS = {
+    path_not_found: "ไม่พบไฟล์ที่ระบุ — ตรวจสอบ path ให้ถูกต้อง แล้วลองใหม่",
+    path_not_allowed: "ไม่ได้รับอนุญาตให้เข้าถึง path นี้ — ใช้ path แบบเต็ม (absolute path) หรือเปิด backend ด้วย --root",
+    upload_not_found: "ไฟล์ที่อัปโหลดหมดอายุแล้ว — กรุณาเลือกไฟล์ใหม่",
+    upload_expired: "ไฟล์ที่อัปโหลดหมดอายุแล้ว — กรุณาเลือกไฟล์ใหม่",
+    rate_limited: "เรียกถี่เกินไป — รอสักครู่แล้วลองใหม่",
+    url_blocked: "URL นี้ถูกบล็อก (private/link-local) — ใช้ไฟล์ในเครื่องแทน",
+    url_unreachable: "เปิด URL นี้ไม่ได้ — ตรวจสอบลิงก์หรือใช้ไฟล์ในเครื่อง",
+    too_large: "ไฟล์ใหญ่เกินขีดจำกัด (256 MB)",
+    invalid_json: "คำขอไม่ถูกต้อง — ลองใหม่อีกครั้ง",
+    method_not_allowed: "คำสั่งนี้ไม่รองรับ",
+    not_found: "ไม่พบปลายทางที่เรียก (API ไม่ตรงเวอร์ชัน?)"
+  };
+
+  function humanError(status, code, kind) {
+    if (status === 401) return "token ไม่ถูกต้องหรือหมดอายุ — เปิดแอปใหม่ หรือคัดลอกจาก session.json";
+    if (status === 403) return "path นี้ไม่ได้รับอนุญาต — ต้องอยู่ในโฟลเดอร์ที่อนุญาต";
+    if (status === 429) return "เรียกถี่เกินไป — รอสักครู่แล้วลองใหม่";
+    if (code && ERROR_HINTS[code]) return ERROR_HINTS[code];
+    if (status === 400) {
+      if (kind === "diff") return "กรุณาใส่ไฟล์ที่ต้องการ Diff ให้ครบทั้งสองช่อง";
+      if (kind === "analyze") return "กรุณาใส่ path ของไฟล์ที่ต้องการวิเคราะห์";
+      return "คำขอไม่ถูกต้อง — ตรวจสอบข้อมูลที่กรอก";
+    }
+    return "เกิดข้อผิดพลาด (" + status + ") — ลองใหม่อีกครั้ง";
+  }
+
+  function call(route, payload, kind) {
     return fetch(route, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token() },
       body: JSON.stringify(payload)
     }).then(function (res) {
       return res.text().then(function (text) {
-        if (res.status === 401) throw new Error("unauthorised: token missing or wrong (open the desktop app, or paste the token from session.json)");
-        if (res.status === 403) throw new Error("path rejected: it must be inside the allowed root folder");
-        if (res.status === 400) throw new Error("bad request: " + text.slice(0, 200));
-        if (!res.ok) throw new Error(res.status + " " + text.slice(0, 200));
-        return text;
+        if (res.ok) return text;
+        var code = "";
+        try { code = (JSON.parse(text) || {}).error || ""; } catch (e) { code = ""; }
+        var failure = new Error(humanError(res.status, code, kind));
+        failure.code = code;
+        failure.status = res.status;
+        throw failure;
       });
     });
   }
 
   $("run").onclick = function () {
+    var target = $("path").value.trim();
+    if (!target && !uploaded.analyze) {
+      $("out").textContent = "กรุณาใส่ path ของไฟล์ที่ต้องการวิเคราะห์ (หรือลากไฟล์มาวาง)";
+      return;
+    }
     $("out").textContent = "working...";
-    call("/analyze", { path: $("path").value.trim(), upload_id: uploaded.analyze || "" }).then(function (text) {
+    call("/analyze", { path: target, upload_id: uploaded.analyze || "" }, "analyze").then(function (text) {
       var doc = JSON.parse(text);
       window.__lastAnalyze = doc;
       var lines = [];
@@ -128,7 +162,7 @@ th{background:#f7f7f7}.muted{color:#666}
       lines.push(doc.diagnostics.length ? "diagnostics: " + doc.diagnostics.map(function (d) { return d.code; }).join(", ") : "diagnostics: none");
       $("out").textContent = lines.join(String.fromCharCode(10));
     }).catch(function (err) {
-      $("out").textContent = "error: " + err.message;
+      $("out").textContent = err.message;
     });
   };
 
@@ -146,10 +180,16 @@ th{background:#f7f7f7}.muted{color:#666}
   }
 
   $("diff").onclick = function () {
+    var leftPath = $("left").value.trim();
+    var rightPath = $("right").value.trim();
+    if (!leftPath || !rightPath) {
+      $("diffstate").textContent = "กรุณาใส่ไฟล์ที่ต้องการ Diff ทั้งสองช่อง (ซ้าย = เวอร์ชันเก่า, ขวา = เวอร์ชันใหม่)";
+      return;
+    }
     $("diffstate").textContent = "working...";
     $("summary").textContent = "";
     $("tables").innerHTML = "";
-    call("/diff", { left_path: $("left").value.trim(), right_path: $("right").value.trim(),
+    call("/diff", { left_path: leftPath, right_path: rightPath,
                     left_upload_id: uploaded.left || "", right_upload_id: uploaded.right || "",
                     ignore_thunks: $("thunks").checked }).then(function (text) {
       var doc = JSON.parse(text);
@@ -164,7 +204,7 @@ th{background:#f7f7f7}.muted{color:#666}
         table("Removed edges", doc.removed_edges, ["caller", "callee", "kind"]);
       $("diffstate").textContent = "done";
     }).catch(function (err) {
-      $("diffstate").textContent = "error: " + err.message;
+      $("diffstate").textContent = err.message;
     });
   };
 
@@ -479,7 +519,7 @@ th{background:#f7f7f7}.muted{color:#666}
         $("uploadstate").textContent = "uploaded " + file.name + " (" + info.size + " bytes)";
       }).catch(function (err) {
         uploaded[kind] = null;
-        $("uploadstate").textContent = "upload failed: " + err.message;
+        $("uploadstate").textContent = "อัปโหลดไม่สำเร็จ: " + err.message;
       });
     };
     area.addEventListener("input", function () { uploaded[kind] = null; });
@@ -505,7 +545,7 @@ th{background:#f7f7f7}.muted{color:#666}
           $("uploadstate").textContent = "uploaded " + file.name + " (" + info.size + " bytes)";
         }).catch(function (err) {
           uploaded[kind] = null;
-          $("uploadstate").textContent = "upload failed: " + err.message;
+          $("uploadstate").textContent = "อัปโหลดไม่สำเร็จ: " + err.message;
         });
       });
     });
@@ -571,7 +611,7 @@ th{background:#f7f7f7}.muted{color:#666}
       setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
       $("diffstate").textContent = "report downloaded";
     }).catch(function (err) {
-      $("diffstate").textContent = "error: " + err.message;
+      $("diffstate").textContent = err.message;
     });
   };
 })();
