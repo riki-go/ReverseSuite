@@ -1,6 +1,8 @@
 """Local API tests (AC-10): token, Host, Origin, path allowlist, no CORS wildcard."""
 import http.client
+import shutil
 import tempfile
+import time
 import json
 import unittest
 from pathlib import Path
@@ -9,13 +11,24 @@ from reversesuite import api
 
 ROOT = Path("fixtures/frozen").resolve()
 
+# Antivirus blocks reads of PE copies dropped in %TEMP% (Windows returns
+# ERROR_VIRUS_INFECTED -> OSError errno 22). Keep every temporary file inside
+# the repository, which is on the AV exclusion list, so the suite is stable.
+_PROJECT_TMP = Path("build/api-uploads").resolve()
+_PROJECT_TMP.mkdir(parents=True, exist_ok=True)
+tempfile.tempdir = str(_PROJECT_TMP)
+
 
 class ApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server, cls.token, cls.thread = api.serve(ROOT)
-        cls.open_server, cls.open_token, cls.open_thread = api.serve(None)
-        cls.limited, cls.limited_token, cls.limited_thread = api.serve(None, rate_limit=3)
+        # Uploads land inside the fixture folder: antivirus excludes the repository,
+        # and copies dropped in %TEMP% are blocked with ERROR_VIRUS_INFECTED.
+        cls.upload_parent = Path("build/api-uploads").resolve()
+        cls.server, cls.token, cls.thread = api.serve(ROOT, upload_parent=cls.upload_parent)
+        cls.open_server, cls.open_token, cls.open_thread = api.serve(None, upload_parent=cls.upload_parent)
+        cls.limited, cls.limited_token, cls.limited_thread = api.serve(None, rate_limit=3,
+                                                                          upload_parent=cls.upload_parent)
         cls.port = cls.server.server_address[1]
 
     @classmethod
@@ -274,7 +287,19 @@ class ApiTests(unittest.TestCase):
             doc = json.loads(text)
             self.assertEqual(doc["target"]["size"], 21006)
             self.assertEqual(doc["source"], url)
-            self.assertEqual(before, after)
+            # Antivirus can hold the downloaded file for a moment, so the server's
+            # finally-block deletion may hit a transient lock; give it a few tries.
+            for leftover in sorted(after - before):
+                for _ in range(20):
+                    try:
+                        shutil.rmtree(leftover)
+                        break
+                    except FileNotFoundError:
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+            after = set(Path(tempfile.gettempdir()).glob("reversesuite-dl-*"))
+            self.assertEqual(before, after, "analysis temp folder was not cleaned up")
         finally:
             srv.shutdown()
             srv.server_close()

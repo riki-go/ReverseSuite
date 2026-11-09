@@ -2583,7 +2583,7 @@ dependencies = [
 
 [[package]]
 name = "reversesuite-desktop"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rand",
  "serde_json",

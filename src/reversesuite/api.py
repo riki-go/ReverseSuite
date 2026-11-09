@@ -1158,6 +1158,11 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                 except Exception as exc:
                     self._send(500, {"error": "diff_failed", "detail": exc.__class__.__name__})
                     return
+                finally:
+                    # URL inputs are downloaded into temp folders; without this the
+                    # folder (and a copy of the binary) leaked on every diff/report.
+                    for leftover in tempdirs:
+                        shutil.rmtree(leftover, ignore_errors=True)
                 if route == "/diff":
                     doc = result.as_dict()
                     doc["left"] = str(left)
@@ -1183,11 +1188,20 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
 
 def serve(root: Optional[Path] = None, token: Optional[str] = None, port: int = 0,
           workers: int = 1, rate_limit: int = RATE_LIMIT_REQUESTS,
-          allow_private_urls: bool = False) -> Tuple[ThreadingHTTPServer, str, threading.Thread]:
+          allow_private_urls: bool = False,
+          upload_parent: Optional[Path] = None) -> Tuple[ThreadingHTTPServer, str, threading.Thread]:
+    """Start the local API server.
+
+    upload_parent keeps the temporary upload folder somewhere predictable; this
+    matters on machines where antivirus blocks reads of PE files dropped in %TEMP%
+    (Windows returns ERROR_VIRUS_INFECTED, surfaced as OSError errno 22).
+    """
     token = token or new_token()
     server = ThreadingHTTPServer(("127.0.0.1", port),
                                  make_handler(token, root, workers, rate_limit, allow_private_urls))
-    upload_dir = tempfile.mkdtemp(prefix="reversesuite-up-")
+    if upload_parent is not None:
+        Path(upload_parent).mkdir(parents=True, exist_ok=True)
+    upload_dir = tempfile.mkdtemp(prefix="reversesuite-up-", dir=str(upload_parent) if upload_parent else None)
     server.upload_dir = upload_dir
     atexit.register(shutil.rmtree, upload_dir, True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
