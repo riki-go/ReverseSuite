@@ -45,3 +45,21 @@ Copy-Item _TEMPLATE_SKILL.md my-skill\SKILL.md -Force
 - สกิลที่ ship อยู่: `reversesuite` (v0.3.0: PE + iOS + Android), `winremote`
 - ตารางรองรับไฟล์ของ `reversesuite`: `.exe/.dll/.sys` (PE), `.ipa`/Mach-O, `.apk`, `.dex`, `.so/.elf` (ELF arm64/x86_64/x86/arm)
 - สกิลที่เลิกใช้: ลบโฟลเดอร์ + ลบแถวใน Index (อย่าทิ้งไฟล์ค้าง)
+
+## Installing into an agent
+
+Agents only see skills inside the directories they scan (for OpenClaw:
+`<workspace>/skills`, `<workspace>/.agents/skills`, `~/.agents/skills`).
+Keep one source of truth by linking this folder instead of copying it.
+
+```powershell
+# Windows junction - edits here take effect for the agent immediately
+cmd /c mklink /J "%USERPROFILE%\.agents\skills\reversesuite" "D:\path\to\project\skills\reversesuite"
+cmd /c mklink /J "%USERPROFILE%\.agents\skills\winremote"    "D:\path\to\project\skills\winremote"
+
+# or copy (must be re-copied after every edit)
+xcopy /e /i skills\reversesuite "%USERPROFILE%\.agents\skills\reversesuite"
+```
+
+The skill index is rebuilt when the agent session starts - restart or open a new session
+after installing.
