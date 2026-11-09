@@ -11,7 +11,7 @@ description: Static multi-format analysis with ReverseSuite - Windows PE, iOS Ma
 
 - **Windows PE** - `.exe` / `.dll` / `.sys` (x86/x64/ARM64): import, export, section, strings + xref, function discovery, call graph, diff, report
 - **iOS Mach-O** - `.ipa` (แตก ZIP อัตโนมัติ) หรือ Mach-O เดี่ยว: arm64 prologue discovery, `bl` call targets, `__cstring` strings, FairPlay `cryptid` detection
-- **Android** - `.apk` (แตก ZIP): `classes*.dex` inventory (classes/methods/strings) + `lib/<abi>/*.so` ผ่าน ELF loader
+- **Android** - `.apk` (แตก ZIP): ถอด binary `AndroidManifest.xml` (package, version, min/target SDK, permissions, components + exported, debuggable/allowBackup) + `classes*.dex` inventory (classes/methods/strings) + `lib/<abi>/*.so` ผ่าน ELF loader
 - **Android/Linux ELF** - `.so` (arm64, x86_64, x86, arm): sections, dynsym, ARM64/UDF prologues
 
 ## When to use
@@ -37,7 +37,8 @@ $env:PYTHONPATH = "projects\reversesuite\src"
 & $py -m reversesuite.cli analyze MyApp.ipa --no-members      # เฉพาะสรุปแพ็กเกจ
 
 # Android: .apk (classes.dex + lib/arm64-v8a/*.so)
-& $py -m reversesuite.cli analyze app-release.apk
+& $py -m reversesuite.cli analyze app-release.apk        # manifest + dex + .so
+& $py -m reversesuite.cli analyze app-release.apk --json # ดู permission/component findings
 & $py -m reversesuite.cli analyze classes.dex --json
 & $py -m reversesuite.cli analyze lib/arm64-v8a/libnative.so
 
@@ -56,7 +57,7 @@ UI รับไฟล์ `.apk`/`.ipa`/`.so`/`.dex` เพิ่มจาก `.e
 
 ```powershell
 & $py -m unittest discover -s tests -t tests
-# expected: OK (177 tests)
+# expected: OK (185 tests)
 & $py fixtures\gen_multi.py
 # regenerates fixtures/multi/{arm64_demo.so,ios_demo,classes.dex,demo.apk,demo.ipa}
 ```

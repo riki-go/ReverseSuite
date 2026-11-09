@@ -27,6 +27,7 @@ class ApkParts:
     dex: List[Tuple[str, bytes]] = field(default_factory=list)
     libs: List[Tuple[str, str, bytes]] = field(default_factory=list)  # (abi, name, bytes)
     has_manifest: bool = False
+    manifest: bytes = b""
     resources: int = 0
     skipped: List[str] = field(default_factory=list)
 
@@ -109,6 +110,9 @@ def read_apk(data: bytes) -> ApkParts:
                         parts.libs.append((segments[1], segments[-1], payload))
             elif lower == "androidmanifest.xml":
                 parts.has_manifest = True
+                payload = _read(archive, info)
+                if payload:
+                    parts.manifest = payload
             elif lower.startswith("res/"):
                 parts.resources += 1
             if payload:

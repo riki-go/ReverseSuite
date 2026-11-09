@@ -191,9 +191,111 @@ def build_zip(files) -> bytes:
     return buffer.getvalue()
 
 
+
+def _axml_pool(strings):
+    offsets = []
+    blob = bytearray()
+    for value in strings:
+        offsets.append(len(blob))
+        raw = value.encode("utf-8")
+        blob += bytes((len(value), len(raw))) + raw + b"\x00"
+    while len(blob) % 4:
+        blob += b"\x00"
+    header_size = 28
+    strings_start = header_size + 4 * len(strings)
+    size = strings_start + len(blob)
+    head = struct.pack("<HHIIIIII", 0x0001, header_size, size, len(strings), 0, 0x100,
+                       strings_start, 0)
+    return head + b"".join(struct.pack("<I", off) for off in offsets) + bytes(blob)
+
+
+def _axml_node(chunk_type, body):
+    return struct.pack("<HHI", chunk_type, 0x10, 8 + len(body)) + body
+
+
+def _axml_attr(ns, name, raw, value_index=None, int_value=None):
+    if int_value is not None:
+        typed = struct.pack("<HBBI", 8, 0, 0x10, int_value)
+        raw_index = 0xFFFFFFFF
+    else:
+        typed = struct.pack("<HBBI", 8, 0, 0x03, value_index)
+        raw_index = value_index
+    return struct.pack("<III", ns, name, raw_index) + typed
+
+
+def build_manifest():
+    strings = [
+        "manifest", "package", "com.demo.app", "versionCode", "versionName", "1.2.3",
+        "uses-sdk", "minSdkVersion", "targetSdkVersion",
+        "uses-permission", "name", "android.permission.INTERNET",
+        "android.permission.READ_CONTACTS",
+        "application", "debuggable", "allowBackup",
+        "activity", "com.demo.app.MainActivity", "exported",
+        "service", "com.demo.app.SyncService",
+        "android", "http://schemas.android.com/apk/res/android",
+        "intent-filter", "action", "category",
+        "android.intent.action.MAIN", "android.intent.category.LAUNCHER",
+    ]
+    index = {value: i for i, value in enumerate(strings)}
+    S = index.__getitem__
+    parts = []
+    parts.append(_axml_node(0x0100, struct.pack("<II", S("android"), S(ANDROID_NS_PLACEHOLDER := "http://schemas.android.com/apk/res/android"))))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 1, 0xFFFFFFFF, 0xFFFFFFFF, S("manifest"),
+                                                20, 20, 3, 0, 0, 0)
+                            + _axml_attr(0xFFFFFFFF, S("package"), 0xFFFFFFFF, value_index=S("com.demo.app"))
+                            + _axml_attr(S("android"), S("versionCode"), 0xFFFFFFFF, int_value=42)
+                            + _axml_attr(S("android"), S("versionName"), 0xFFFFFFFF, value_index=S("1.2.3"))))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 2, 0xFFFFFFFF, 0xFFFFFFFF, S("uses-sdk"),
+                                                20, 20, 2, 0, 0, 0)
+                            + _axml_attr(S("android"), S("minSdkVersion"), 0xFFFFFFFF, int_value=21)
+                            + _axml_attr(S("android"), S("targetSdkVersion"), 0xFFFFFFFF, int_value=33)))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 3, 0xFFFFFFFF, 0xFFFFFFFF, S("uses-permission"),
+                                                20, 20, 1, 0, 0, 0)
+                            + _axml_attr(S("android"), S("name"), 0xFFFFFFFF,
+                                         value_index=S("android.permission.INTERNET"))))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 4, 0xFFFFFFFF, 0xFFFFFFFF, S("uses-permission"),
+                                                20, 20, 1, 0, 0, 0)
+                            + _axml_attr(S("android"), S("name"), 0xFFFFFFFF,
+                                         value_index=S("android.permission.READ_CONTACTS"))))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 5, 0xFFFFFFFF, 0xFFFFFFFF, S("application"),
+                                                20, 20, 2, 0, 0, 0)
+                            + _axml_attr(S("android"), S("debuggable"), 0xFFFFFFFF, int_value=1)
+                            + _axml_attr(S("android"), S("allowBackup"), 0xFFFFFFFF, int_value=0)))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 6, 0xFFFFFFFF, 0xFFFFFFFF, S("activity"),
+                                                20, 20, 2, 0, 0, 0)
+                            + _axml_attr(S("android"), S("name"), 0xFFFFFFFF,
+                                         value_index=S("com.demo.app.MainActivity"))
+                            + _axml_attr(S("android"), S("exported"), 0xFFFFFFFF, int_value=1)))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 7, 0xFFFFFFFF, 0xFFFFFFFF, S("intent-filter"),
+                                                20, 20, 0, 0, 0, 0)))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 8, 0xFFFFFFFF, 0xFFFFFFFF, S("action"),
+                                                20, 20, 1, 0, 0, 0)
+                            + _axml_attr(S("android"), S("name"), 0xFFFFFFFF,
+                                         value_index=S("android.intent.action.MAIN"))))
+    parts.append(_axml_node(0x0103, struct.pack("<IIII", 8, 0xFFFFFFFF, 0xFFFFFFFF, S("action"))))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 9, 0xFFFFFFFF, 0xFFFFFFFF, S("category"),
+                                                20, 20, 1, 0, 0, 0)
+                            + _axml_attr(S("android"), S("name"), 0xFFFFFFFF,
+                                         value_index=S("android.intent.category.LAUNCHER"))))
+    parts.append(_axml_node(0x0103, struct.pack("<IIII", 9, 0xFFFFFFFF, 0xFFFFFFFF, S("category"))))
+    parts.append(_axml_node(0x0103, struct.pack("<IIII", 7, 0xFFFFFFFF, 0xFFFFFFFF, S("intent-filter"))))
+    parts.append(_axml_node(0x0103, struct.pack("<IIII", 6, 0xFFFFFFFF, 0xFFFFFFFF, S("activity"))))
+    parts.append(_axml_node(0x0102, struct.pack("<IIIIHHHHHH", 7, 0xFFFFFFFF, 0xFFFFFFFF, S("service"),
+                                                20, 20, 2, 0, 0, 0)
+                            + _axml_attr(S("android"), S("name"), 0xFFFFFFFF,
+                                         value_index=S("com.demo.app.SyncService"))
+                            + _axml_attr(S("android"), S("exported"), 0xFFFFFFFF, int_value=0)))
+    parts.append(_axml_node(0x0103, struct.pack("<IIII", 7, 0xFFFFFFFF, 0xFFFFFFFF, S("service"))))
+    parts.append(_axml_node(0x0103, struct.pack("<IIII", 5, 0xFFFFFFFF, 0xFFFFFFFF, S("application"))))
+    parts.append(_axml_node(0x0103, struct.pack("<IIII", 1, 0xFFFFFFFF, 0xFFFFFFFF, S("manifest"))))
+    parts.append(_axml_node(0x0101, struct.pack("<II", S("android"), S("http://schemas.android.com/apk/res/android"))))
+    body = _axml_pool(strings) + b"".join(parts)
+    return struct.pack("<HHI", 0x0003, 8, 8 + len(body)) + body
+
+
 def build_apk(elf: bytes, dex: bytes) -> bytes:
     return build_zip([
-        ("AndroidManifest.xml", b"\x03\x00\x08\x00" + b"\x00" * 60),
+        ("AndroidManifest.xml", build_manifest()),
         ("classes.dex", dex),
         ("res/layout/main.xml", b"<layout/>"),
         ("lib/arm64-v8a/libdemo.so", elf),

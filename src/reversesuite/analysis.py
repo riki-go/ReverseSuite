@@ -17,6 +17,7 @@ from . import functions as functions_mod
 from . import loader, rules, schema, strings as strings_mod
 from .formats import (FORMAT_APK, FORMAT_DEX, FORMAT_ELF, FORMAT_IPA, FORMAT_MACHO, FORMAT_PE,
                       FORMAT_UNKNOWN, BinaryImage, FormatError, detect, load)
+from .formats import axml as axml_mod
 from .formats import container as container_mod
 from .formats import dex as dex_mod
 
@@ -178,12 +179,51 @@ def _analyze_dex(data: bytes, image: BinaryImage) -> schema.AnalysisResult:
         if len(findings) >= MAX_MEMBER_FINDINGS:
             break
     diags = [schema.Diagnostic("dex.bytecode.not_analyzed",
-                               "Dalvik bytecode is inventoried but not disassembled in 0.3.0",
+                               "Dalvik bytecode is inventoried (classes/methods/strings) but not disassembled",
                                "info", {"methods": len(inventory.methods)})]
     return schema.AnalysisResult(
         target_sha256=_sha(data), target_kind="dex", target_size=len(data), status="ok",
         findings=schema.enforce_rules(findings), diagnostics=diags,
     )
+
+
+def _manifest_findings(manifest: "axml_mod.Manifest") -> List[schema.Finding]:
+    """Turn a decoded AndroidManifest into schema findings (M8 follow-up)."""
+    out: List[schema.Finding] = []
+    rule = "apk.manifest.parse"
+
+    def add(kind: str, value: str, rule_id: str, level: str = "L0", conf: int = 1000) -> None:
+        out.append(schema.Finding(kind=kind, value=value, confidence_permille=conf, level=level,
+                                  rule=rule_id,
+                                  evidence=[schema.Evidence(offset=0, space="file", rule=rule_id)]))
+
+    if manifest.package:
+        add("package_name", manifest.package, rule)
+    if manifest.version_name or manifest.version_code:
+        add("package_version", "versionName=%s;versionCode=%d" % (manifest.version_name,
+                                                                  manifest.version_code), rule)
+    if manifest.min_sdk or manifest.target_sdk:
+        add("min_sdk", "min=%d;target=%d" % (manifest.min_sdk, manifest.target_sdk), "apk.sdk")
+    flags = []
+    if manifest.debuggable:
+        flags.append("debuggable=true")
+    if manifest.allow_backup is not None:
+        flags.append("allowBackup=%s" % str(manifest.allow_backup).lower())
+    if manifest.uses_cleartext is not None:
+        flags.append("usesCleartextTraffic=%s" % str(manifest.uses_cleartext).lower())
+    if flags:
+        add("manifest_flag", ";".join(flags), rule)
+    for perm in manifest.permissions:
+        add("permission", perm, "apk.permission")
+    for component in manifest.components:
+        state = "exported" if component.exported else ("internal" if component.exported is False else "unset")
+        add("component", "%s:%s" % (component.tag, component.name), "apk.component",
+            level="L1" if component.exported else "L0")
+        add("component_flag", "%s:%s:%s" % (component.tag, component.name, state), "apk.component",
+            conf=900)
+    if manifest.main_activity:
+        add("main_activity", manifest.main_activity, rule)
+    return out
 
 
 def _analyze_container(data: bytes, filename: str, fmt: str, min_string_length: int,
@@ -198,11 +238,23 @@ def _analyze_container(data: bytes, filename: str, fmt: str, min_string_length: 
     status = "ok"
     package_rule = "package.container.parse"
 
+    manifest_findings: List[schema.Finding] = []
+    if fmt == FORMAT_APK and parts.manifest:
+        try:
+            manifest = axml_mod.parse(parts.manifest)
+        except axml_mod.AxmlError as exc:
+            diags.append(schema.Diagnostic("apk.manifest.unparsed", str(exc), "warn",
+                                           {"code": exc.code}))
+            manifest = None
+        if manifest is not None:
+            manifest_findings = _manifest_findings(manifest)
     if fmt == FORMAT_APK:
         members = [("dex", name, payload) for name, payload in parts.dex]
         members += [("so", "%s/%s" % (abi, name), payload) for abi, name, payload in parts.libs]
         meta = parts.as_dict()
-        summary = "format=apk;dex=%d;libs=%d;manifest=%s" % (
+        summary = "format=apk;package=%s;version=%s;dex=%d;libs=%d;manifest=%s" % (
+            (manifest.package if fmt == FORMAT_APK and parts.manifest and "manifest" in dir() and manifest else ""),
+            (manifest.version_name if fmt == FORMAT_APK and parts.manifest and "manifest" in dir() and manifest else ""),
             len(parts.dex), len(parts.libs), parts.has_manifest)
         if not parts.dex:
             diags.append(schema.Diagnostic("apk.dex.missing", "no classes*.dex in the archive",
@@ -231,6 +283,7 @@ def _analyze_container(data: bytes, filename: str, fmt: str, min_string_length: 
         kind="package_meta", value=str(sorted(meta.items()))[:512], confidence_permille=1000,
         level="L0", rule=package_rule,
         evidence=[schema.Evidence(offset=0, space="file", rule=package_rule)]))
+    findings.extend(manifest_findings)
 
     if not include_members:
         return schema.AnalysisResult(

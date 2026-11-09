@@ -206,5 +206,56 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(result.diagnostics)
 
 
+class AxmlTests(unittest.TestCase):
+    def setUp(self):
+        from reversesuite.formats import axml, container
+        self.axml = axml
+        data = fixture("demo.apk")
+        self.raw = container.member_bytes(data, "AndroidManifest.xml")
+        self.manifest = axml.parse(self.raw)
+
+    def test_is_axml(self):
+        self.assertTrue(self.axml.is_axml(self.raw))
+        self.assertFalse(self.axml.is_axml(b"<?xml version=\"1.0\"?><manifest/>"))
+
+    def test_package_identity(self):
+        self.assertEqual(self.manifest.package, "com.demo.app")
+        self.assertEqual(self.manifest.version_name, "1.2.3")
+        self.assertEqual(self.manifest.version_code, 42)
+
+    def test_sdk_and_flags(self):
+        self.assertEqual(self.manifest.min_sdk, 21)
+        self.assertEqual(self.manifest.target_sdk, 33)
+        self.assertTrue(self.manifest.debuggable)
+        self.assertFalse(self.manifest.allow_backup)
+
+    def test_permissions_are_deduplicated(self):
+        self.assertEqual(self.manifest.permissions,
+                         ["android.permission.INTERNET", "android.permission.READ_CONTACTS"])
+
+    def test_components_and_exported_state(self):
+        names = {c.name: c.exported for c in self.manifest.components}
+        self.assertTrue(names["com.demo.app.MainActivity"])
+        self.assertFalse(names["com.demo.app.SyncService"])
+
+    def test_main_activity_from_intent_filter(self):
+        self.assertEqual(self.manifest.main_activity, "com.demo.app.MainActivity")
+
+    def test_pipeline_reports_manifest_findings(self):
+        result = analysis.analyze_bytes(fixture("demo.apk"), "demo.apk")
+        kinds = {}
+        for item in result.findings:
+            kinds.setdefault(item.kind, []).append(item.value)
+        self.assertEqual(kinds["package_name"], ["com.demo.app"])
+        self.assertIn("android.permission.INTERNET", kinds["permission"])
+        self.assertIn("activity:com.demo.app.MainActivity", kinds["component"])
+        self.assertEqual(kinds["main_activity"], ["com.demo.app.MainActivity"])
+        self.assertTrue(any("debuggable=true" in v for v in kinds["manifest_flag"]))
+
+    def test_malformed_manifest_is_reported_not_fatal(self):
+        with self.assertRaises(self.axml.AxmlError):
+            self.axml.parse(self.raw[:12])
+
+
 if __name__ == "__main__":
     unittest.main()
