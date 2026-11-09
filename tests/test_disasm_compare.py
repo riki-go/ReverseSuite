@@ -7,6 +7,8 @@ from reversesuite import disasm, disasm_compare, loader, strings
 
 FIXTURES = Path("fixtures/frozen")
 OBJDUMP = Path("tools/mingw64/bin/objdump.exe")
+# tools/ is not published (binutils is a local-only dependency); CI skips this check.
+HAS_OBJDUMP = OBJDUMP.exists()
 
 
 class NormalisationTests(unittest.TestCase):
@@ -45,6 +47,7 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(disasm_compare.normalize_operands(parsed[0x100C].operands), "rax,[rip+0x439a]")
 
 
+@unittest.skipUnless(HAS_OBJDUMP, "objdump not present (tools/mingw64/bin)")
 class AgreementTests(unittest.TestCase):
     def test_b_exec_agrees_with_objdump_over_99_percent(self):
         path = FIXTURES / "b.exe"

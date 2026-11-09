@@ -35,6 +35,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("pe.function.discover", rules)
         self.assertIn("pe.string.ascii", rules)
 
+    @unittest.skipUnless(Path("fixtures/out/d.exe").exists(), "fixtures/out/d.exe not generated")
     def test_analyze_large_file_skips_heavy_passes(self):
         code, out, err = run(["analyze", "fixtures/out/d.exe"])
         self.assertEqual(code, 0, err)
