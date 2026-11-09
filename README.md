@@ -124,8 +124,8 @@ binaries) and its zip with:
 
 Output:
 
-- `dist/release/ReverseSuite-<version>/` — the folder to hand out
-- `dist/release/ReverseSuite-<version>-win64.zip` — the same folder, zipped
+- `release-out/ReverseSuite-<version>/` — the folder to hand out
+- `release-out/ReverseSuite-<version>-win64.zip` — the same folder, zipped
 
 The folder contains `ReverseSuite_<version>_x64_en-US.msi`, `manual/` (Thai and
 English manuals, `.md` + `.html`), `README.md`, `RELEASE_NOTES.md`, `LICENSE`,

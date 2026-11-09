@@ -114,7 +114,7 @@ def main() -> int:
     if not MSI_SRC.is_file():
         print("missing installer:", MSI_SRC, file=sys.stderr)
         return 2
-    target = ROOT / "dist" / "release" / ("ReverseSuite-%s" % VERSION)
+    target = ROOT / "release-out" / ("ReverseSuite-%s" % VERSION)
     if target.exists():
         shutil.rmtree(target)
     (target / "manual").mkdir(parents=True)
@@ -146,7 +146,7 @@ def main() -> int:
         lines.append("%s  %s" % (sha256(path), path.relative_to(target).as_posix()))
     (target / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    archive = ROOT / "dist" / "release" / ("ReverseSuite-%s-win64.zip" % VERSION)
+    archive = ROOT / "release-out" / ("ReverseSuite-%s-win64.zip" % VERSION)
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         for path in sorted(p for p in target.rglob("*") if p.is_file()):
             bundle.write(path, path.relative_to(target.parent).as_posix())
