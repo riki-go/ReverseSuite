@@ -1,4 +1,4 @@
 """Version constants that participate in canonical output."""
 SCHEMA_VERSION = "1.0.0"
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.5.0"
 ENGINE_BUILD_ID = "m5-0.2.1"

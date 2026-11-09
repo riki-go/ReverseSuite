@@ -118,7 +118,8 @@ class DexLoaderTests(unittest.TestCase):
         inventory = dex.parse(self.data)
         self.assertEqual(inventory.version, "035")
         self.assertEqual(inventory.classes, ["com.demo.App"])
-        self.assertEqual(inventory.methods, ["com.demo.App.run"])
+        self.assertEqual(inventory.methods, ["com.demo.App.helper", "com.demo.App.run",
+                                             "java.lang.System.currentTimeMillis"])
         self.assertIn("hello from dex", [value for _o, value in inventory.strings])
 
 
@@ -255,6 +256,61 @@ class AxmlTests(unittest.TestCase):
     def test_malformed_manifest_is_reported_not_fatal(self):
         with self.assertRaises(self.axml.AxmlError):
             self.axml.parse(self.raw[:12])
+
+
+class DexCallGraphTests(unittest.TestCase):
+    def setUp(self):
+        from reversesuite.formats import dex, dexgraph
+        self.dexgraph = dexgraph
+        self.data = fixture("classes.dex")
+        self.inventory = dex.parse(self.data)
+
+    def test_code_offsets_are_discovered(self):
+        self.assertEqual(sorted(self.inventory.code_offsets), [0, 1])
+        self.assertEqual(self.inventory.method_names[0], "com.demo.App.run")
+        self.assertEqual(self.inventory.method_names[1], "com.demo.App.helper")
+
+    def test_invoke_decoder_walks_bytecode(self):
+        from reversesuite.formats import dexgraph
+        insns = b"".join(struct_pack(word) for word in (0x016E, 0x0001, 0x0000, 0x0071, 0x0002, 0x0000, 0x000E))
+        found = list(dexgraph.iter_invokes(insns))
+        self.assertEqual([(kind, idx) for _pc, _op, kind, idx in found],
+                         [("virtual", 1), ("static", 2)])
+
+    def test_default_graph_hides_framework(self):
+        graph = self.dexgraph.build(self.data)
+        dump = graph.as_dict()
+        labels = [node["label"] for node in dump["nodes"]]
+        self.assertEqual(labels, ["com.demo.App.run", "com.demo.App.helper"])
+        self.assertEqual(dump["edges"], [{"caller": 0, "callee": 1, "kind": "virtual"}])
+        self.assertEqual(dump["stats"]["hidden_framework"], 1)
+
+    def test_include_framework_keeps_java_nodes(self):
+        graph = self.dexgraph.build(self.data, include_framework=True)
+        dump = graph.as_dict()
+        labels = {node["label"] for node in dump["nodes"]}
+        self.assertIn("java.lang.System.currentTimeMillis", labels)
+        self.assertEqual(dump["stats"]["edges"], 2)
+
+    def test_apk_merges_dex_graph(self):
+        result = analysis.dex_call_graph_for_container(fixture("demo.apk"))
+        dump = result.as_dict()
+        self.assertEqual(dump["stats"]["methods"], 2)
+        self.assertEqual(dump["stats"]["edges"], 1)
+
+    def test_pipeline_reports_dex_callgraph_finding(self):
+        result = analysis.analyze_bytes(self.data, "classes.dex")
+        values = [item.value for item in result.findings if item.kind == "dex_callgraph"]
+        self.assertEqual(len(values), 1)
+        self.assertIn("edges=1", values[0])
+
+    def test_invalid_dex_returns_none_instead_of_raising(self):
+        self.assertIsNone(analysis.dex_call_graph(b"dex\n035\x00" + b"\x00" * 32))
+
+
+def struct_pack(word: int) -> bytes:
+    import struct
+    return struct.pack("<H", word)
 
 
 if __name__ == "__main__":

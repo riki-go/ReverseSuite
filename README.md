@@ -1,4 +1,4 @@
-# ReverseSuite 0.4.0
+# ReverseSuite 0.5.0
 
 Static **universal** binary analysis toolkit: Windows PE, iOS Mach-O (`.ipa`),
 Android (`.apk` / `.dex` / `.so`) and Linux ELF — loader, disassembly,
@@ -12,7 +12,7 @@ plus a local API/UI and a desktop wrapper. Nothing is ever executed.
 | Windows PE | `.exe` `.dll` `.sys` | sections, imports/exports, strings + xref, functions, call graph, diff/report |
 | iOS Mach-O | `.ipa`, Mach-O file | fat/thin slices, `__TEXT,__text`, `__cstring`, symbols, ARM64 prologues, `cryptid` |
 | Android APK | `.apk` | decoded `AndroidManifest.xml` (package, version, SDK, permissions, components, flags), every `classes*.dex`, every `lib/<abi>/*.so` |
-| Dalvik DEX | `.dex` | classes, methods, fields, string table (bytecode inventory only) |
+| Dalvik DEX | `.dex` | classes, methods, fields, string table, plus a method-level call graph from `invoke` bytecode (framework calls hidden by default) |
 | ELF | `.so`, `.elf`, Linux binaries | x86, x86-64, ARM, AArch64: sections, dynsym, ARM64 prologues |
 
 Format detection is magic-byte based (never extension-only). The runtime uses the

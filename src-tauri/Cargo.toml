@@ -1,6 +1,6 @@
 [package]
 name = "reversesuite-desktop"
-version = "0.4.2"
+version = "0.5.0"
 description = "ReverseSuite desktop wrapper"
 edition = "2021"
 

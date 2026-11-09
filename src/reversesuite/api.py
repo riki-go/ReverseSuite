@@ -79,12 +79,20 @@ def _looks_like_supported(data: bytes) -> bool:
 
 
 def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False,
-                  filename: str = "") -> dict:
+                  filename: str = "", dex_all_methods: bool = False) -> dict:
     """Analyse one file; PE keeps the callgraph path, other formats use the M8 pipeline."""
-    if formats.detect(data, filename) != formats.FORMAT_PE:
+    detected = formats.detect(data, filename)
+    if detected != formats.FORMAT_PE:
         multi = analysis.analyze_bytes(data, filename)
         doc = multi.canonical()
         doc["graph"] = callgraph.CallGraph().as_dict()
+        graph = None
+        if detected == formats.FORMAT_DEX:
+            graph = analysis.dex_call_graph(data, include_framework=dex_all_methods)
+        elif detected == formats.FORMAT_APK:
+            graph = analysis.dex_call_graph_for_container(data, include_framework=dex_all_methods)
+        if graph is not None:
+            doc["dex_graph"] = graph.as_dict()
         return doc
     result = loader.parse(data)
     if result.status == "failed":
@@ -302,6 +310,7 @@ th{background:#f7f7f7}.muted{color:#666}
 <div id="summary"></div>
 <h2>Graph</h2>
 <div class="row">
+  <button id="gdex">view dex graph</button>
   <button id="gcall">view call graph</button>
   <button id="gdiff">view diff graph</button>
   <button id="gexport">export svg</button>
@@ -400,6 +409,10 @@ th{background:#f7f7f7}.muted{color:#666}
       lines.push("findings: " + doc.findings.length);
       lines.push("functions: " + doc.graph.nodes.length);
       lines.push("edges: " + doc.graph.edges.length + " (imports " + (doc.graph.import_calls || 0) + ", indirect " + (doc.graph.indirect_calls || 0) + ")");
+      if (doc.dex_graph) {
+        lines.push("dex graph: " + doc.dex_graph.stats.methods + " nodes / " + doc.dex_graph.stats.edges +
+          " edges (" + doc.dex_graph.stats.hidden_framework + " framework calls hidden)");
+      }
       lines.push(doc.diagnostics.length ? "diagnostics: " + doc.diagnostics.map(function (d) { return d.code; }).join(", ") : "diagnostics: none");
       $("out").textContent = lines.join(String.fromCharCode(10));
     }).catch(function (err) {
@@ -681,6 +694,38 @@ th{background:#f7f7f7}.muted{color:#666}
             ["tail", CALL_COLORS.tail], ["thunk", CALL_COLORS.thunk]]);
     drawGraph(nodes, edges, CALL_COLORS, nodes.length + " nodes / " + edges.length + " edges" +
       (doc.graph.nodes.length > limit ? " (first " + limit + ")" : ""));
+  };
+
+  var DEX_COLORS = { virtual: "#3b82f6", direct: "#8b5cf6", static: "#0ea5e9",
+                     interface: "#f59e0b", super: "#ef4444", polymorphic: "#10b981",
+                     custom: "#6b7280" };
+
+  $("gdex").onclick = function () {
+    var doc = window.__lastAnalyze;
+    if (!doc || !doc.dex_graph) {
+      $("gstate").textContent = "ยังไม่มี DEX graph — วิเคราะห์ไฟล์ .dex หรือ .apk ก่อน";
+      return;
+    }
+    var limit = 400;
+    var nodes = doc.dex_graph.nodes.map(function (n) {
+      return { addr: n.id, label: n.label, color: n.framework ? "#9ca3af" : "#111827" };
+    });
+    var degree = {};
+    doc.dex_graph.edges.forEach(function (e) {
+      degree[e.caller] = (degree[e.caller] || 0) + 1;
+      degree[e.callee] = (degree[e.callee] || 0) + 1;
+    });
+    nodes.sort(function (a, b) {
+      return (degree[b.addr] || 0) - (degree[a.addr] || 0) || a.addr - b.addr;
+    });
+    if (nodes.length > limit) nodes = nodes.slice(0, limit);
+    var kept = {};
+    nodes.forEach(function (n) { kept[n.addr] = true; });
+    var edges = doc.dex_graph.edges.filter(function (e) { return kept[e.caller] && kept[e.callee]; });
+    legend([["virtual", DEX_COLORS.virtual], ["direct", DEX_COLORS.direct],
+            ["static", DEX_COLORS.static], ["interface", DEX_COLORS.interface]]);
+    drawGraph(nodes, edges, DEX_COLORS, "dex: " + nodes.length + " methods / " + edges.length + " edges" +
+      (doc.dex_graph.stats.methods > limit ? " (top " + limit + " by degree)" : ""));
   };
 
   $("gdiff").onclick = function () {
@@ -1069,7 +1114,9 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                             return
                     try:
                         doc = analyze_bytes(target.read_bytes(), int(payload.get("workers", workers)),
-                                        bool(payload.get("valueflow", False)))
+                                        bool(payload.get("valueflow", False)),
+                                        filename=str(target),
+                                        dex_all_methods=bool(payload.get("dex_all_methods", False)))
                     except Exception as exc:
                         self._send(400, {"error": "analysis_failed", "detail": exc.__class__.__name__})
                         return

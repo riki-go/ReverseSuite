@@ -21,6 +21,14 @@ class DexInventory:
     strings: List[Tuple[int, str]] = field(default_factory=list)
     classes: List[str] = field(default_factory=list)
     methods: List[str] = field(default_factory=list)
+    # method_idx -> "com.foo.Bar.method" (index aligned with method_ids)
+    method_names: List[str] = field(default_factory=list)
+    # method_idx -> full descriptor including prototype
+    method_signatures: List[str] = field(default_factory=list)
+    # method_idx -> code_item file offset (0 when abstract/native)
+    code_offsets: Dict[int, int] = field(default_factory=dict)
+    # class name -> declared method indices in class_data order
+    class_methods: Dict[str, List[int]] = field(default_factory=dict)
     fields: List[str] = field(default_factory=list)
     superclasses: Dict[str, str] = field(default_factory=dict)
     source_files: List[str] = field(default_factory=list)
@@ -123,8 +131,13 @@ def parse(data: bytes) -> DexInventory:
             cls_idx, proto_idx, name_idx = struct.unpack_from("<HHI", data, method_ids_off + i * 8)
             owner = _descriptor(type_name(cls_idx))
             name = inv.strings[name_idx][1] if name_idx < len(inv.strings) else ""
-            if owner and name and not name.startswith("<"):
-                inv.methods.append(f"{owner}.{name}")
+            signature = f"{owner}.{name}"
+            proto_return = _proto_return(data, inv, proto_idx)
+            if owner and name:
+                inv.method_names.append(signature)
+                inv.method_signatures.append(f"{owner}.{name}:{proto_return}")
+                if not name.startswith("<"):
+                    inv.methods.append(signature)
 
     if class_defs_size and class_defs_off:
         need(class_defs_off, class_defs_size * 32, "dex.classes.truncated")
@@ -144,7 +157,69 @@ def parse(data: bytes) -> DexInventory:
     inv.classes.sort()
     inv.methods.sort()
     inv.fields.sort()
+    _read_class_data(data, inv, class_defs_off, class_defs_size, method_ids_size)
     return inv
+
+
+def _uleb(data: bytes, off: int) -> Tuple[int, int]:
+    return _uleb128(data, off)
+
+
+def _read_class_data(data: bytes, inv: "DexInventory", class_defs_off: int,
+                     class_defs_size: int, method_ids_size: int) -> None:
+    """Walk class_def -> class_data_item -> encoded methods -> code_item offsets."""
+    for i in range(min(class_defs_size, MAX_ITEMS)):
+        pos = class_defs_off + i * 32
+        if pos + 32 > len(data):
+            break
+        class_idx, _flags, _super, _ifaces, _src, _ann, class_data_off, _static = struct.unpack_from(
+            "<IIIIIIII", data, pos)
+        if not class_data_off or class_data_off >= len(data):
+            continue
+        class_name = _descriptor(_type_name_at(data, inv, class_idx))
+        cursor = class_data_off
+        counts = []
+        for _ in range(4):  # static fields, instance fields, direct methods, virtual methods
+            value, cursor = _uleb(data, cursor)
+            counts.append(value)
+        static_fields, instance_fields, direct_methods, virtual_methods = counts
+        # skip field definitions (idx_diff, access_flags)
+        for _ in range(static_fields + instance_fields):
+            _v, cursor = _uleb(data, cursor)
+            _v, cursor = _uleb(data, cursor)
+        order: List[int] = []
+        for method_count in (direct_methods, virtual_methods):
+            method_idx = 0
+            for _ in range(method_count):
+                diff, cursor = _uleb(data, cursor)
+                _flags, cursor = _uleb(data, cursor)
+                code_off, cursor = _uleb(data, cursor)
+                method_idx += diff
+                if method_idx >= method_ids_size:
+                    continue
+                order.append(method_idx)
+                if code_off:
+                    inv.code_offsets[method_idx] = code_off
+        if class_name:
+            inv.class_methods[class_name] = order
+
+
+def _type_name_at(data: bytes, inv: "DexInventory", type_index: int) -> str:
+    off = struct.unpack_from("<II", data, 64)[1]  # type_ids_size, type_ids_off
+    pos = off + type_index * 4
+    if pos + 4 > len(data):
+        return ""
+    str_idx = struct.unpack_from("<I", data, pos)[0]
+    return inv.strings[str_idx][1] if str_idx < len(inv.strings) else ""
+
+
+def _proto_return(data: bytes, inv: "DexInventory", proto_idx: int) -> str:
+    proto_ids_off = struct.unpack_from("<II", data, 72)[1]
+    pos = proto_ids_off + proto_idx * 12
+    if pos + 12 > len(data):
+        return "?"
+    _shorty, return_type, _params = struct.unpack_from("<III", data, pos)
+    return _descriptor(_type_name_at(data, inv, return_type))
 
 
 def load(data: bytes) -> BinaryImage:

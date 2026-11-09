@@ -132,19 +132,22 @@ def _uleb(value: int) -> bytes:
 
 
 def build_dex() -> bytes:
-    strings = ["Lcom/demo/App;", "Ljava/lang/Object;", "run", "V", "hello from dex", "App.java"]
-    types = [0, 1, 3]              # App, Object, void
-    proto = (3, 2, 0)              # shorty "V", return type "V", no params
-    method = (0, 0, 2)            # class App, proto 0, name "run"
-    class_def = (0, 0x1, 1, 5)    # class, public, super, source file
+    """DEX 035 with two App methods whose bytecode calls one another and a
+    java.lang.System method, so the call-graph parser has real edges."""
+    strings = ["Lcom/demo/App;", "Ljava/lang/Object;", "run", "helper", "V",
+               "hello from dex", "App.java", "Ljava/lang/System;",
+               "currentTimeMillis", "J"]
+    type_of = {"app": 0, "obj": 1, "void": 2, "sys": 3, "long": 4}
+    types = [0, 1, 4, 7, 9]
+    protos = [(4, type_of["void"], 0), (9, type_of["long"], 0)]  # (shorty string idx, return type, params)
+    methods = [(0, 0, 2), (0, 0, 3), (3, 1, 8)]                  # (class, proto, name)
 
     header_size = 0x70
-    string_ids_size = len(strings)
     string_ids_off = header_size
-    type_ids_off = string_ids_off + 4 * string_ids_size
+    type_ids_off = string_ids_off + 4 * len(strings)
     proto_ids_off = type_ids_off + 4 * len(types)
-    method_ids_off = proto_ids_off + 12
-    class_defs_off = method_ids_off + 8
+    method_ids_off = proto_ids_off + 12 * len(protos)
+    class_defs_off = method_ids_off + 8 * len(methods)
     data_off = class_defs_off + 32
 
     data = bytearray()
@@ -154,42 +157,77 @@ def build_dex() -> bytes:
         string_offsets.append(data_off + len(data))
         data += _uleb(len(value)) + raw + b"\x00"
 
+    def uleb(value: int) -> bytes:
+        return _uleb(value)
+
+    def class_data(code0: int, code1: int) -> bytes:
+        out = bytearray()
+        for count in (0, 0, 0, 2):      # static fields, instance fields, direct, virtual
+            out += uleb(count)
+        out += uleb(0) + uleb(0x1) + uleb(code0)   # method_idx_diff 0 -> run
+        out += uleb(1) + uleb(0x1) + uleb(code1)   # method_idx_diff 1 -> helper
+        return bytes(out)
+
+    def code_item(insns, registers, outs):
+        body = struct.pack("<HHHHII", registers, 0, outs, 0, 0, len(insns))
+        raw = b"".join(struct.pack("<H", word) for word in insns)
+        if len(raw) % 4:
+            raw += b"\x00" * (4 - len(raw) % 4)
+        return body + raw
+
+    run_insns = [0x016E, 0x0001, 0x0000,   # invoke-virtual {v0}, method@0001 (helper)
+                 0x0071, 0x0002, 0x0000,   # invoke-static {}, method@0002 (System.currentTimeMillis)
+                 0x000E]                   # return-void
+    helper_insns = [0x000E]                # return-void
+    run_code = code_item(run_insns, 1, 2)
+    helper_code = code_item(helper_insns, 0, 0)
+
+    base = data_off + len(data)
+    cd = class_data(base, base)
+    for _ in range(4):
+        code0 = data_off + len(data) + len(cd)
+        code1 = code0 + len(run_code)
+        cd = class_data(code0, code1)
+    code0 = data_off + len(data) + len(cd)
+    code1 = code0 + len(run_code)
+    data += cd + run_code + helper_code
     total = data_off + len(data)
+
     buf = bytearray(total)
     buf[0:8] = b"dex\n035\x00"
-    struct.pack_into("<I", buf, 32, total)      # file_size
+    struct.pack_into("<I", buf, 32, total)
     struct.pack_into("<I", buf, 36, header_size)
     struct.pack_into("<I", buf, 40, 0x12345678)
-    struct.pack_into("<II", buf, 56, string_ids_size, string_ids_off)
+    struct.pack_into("<II", buf, 56, len(strings), string_ids_off)
     struct.pack_into("<II", buf, 64, len(types), type_ids_off)
-    struct.pack_into("<II", buf, 72, 1, proto_ids_off)
+    struct.pack_into("<II", buf, 72, len(protos), proto_ids_off)
     struct.pack_into("<II", buf, 80, 0, 0)
-    struct.pack_into("<II", buf, 88, 1, method_ids_off)
+    struct.pack_into("<II", buf, 88, len(methods), method_ids_off)
     struct.pack_into("<II", buf, 96, 1, class_defs_off)
     struct.pack_into("<II", buf, 104, len(data), data_off)
     for i, off in enumerate(string_offsets):
         struct.pack_into("<I", buf, string_ids_off + i * 4, off)
     for i, type_idx in enumerate(types):
         struct.pack_into("<I", buf, type_ids_off + i * 4, type_idx)
-    struct.pack_into("<III", buf, proto_ids_off, *proto)
-    struct.pack_into("<HHI", buf, method_ids_off, *method)
-    struct.pack_into("<IIII", buf, class_defs_off, class_def[0], class_def[1], class_def[2],
-                     class_def[3])
+    for i, proto in enumerate(protos):
+        struct.pack_into("<III", buf, proto_ids_off + i * 12, *proto)
+    for i, method in enumerate(methods):
+        struct.pack_into("<HHI", buf, method_ids_off + i * 8, *method)
+    struct.pack_into("<IIIIIIII", buf, class_defs_off,
+                     0,        # class_idx -> Lcom/demo/App;
+                     0x1,      # public
+                     1,        # superclass -> Ljava/lang/Object;
+                     0,        # interfaces_off
+                     6,        # source_file_idx -> "App.java"
+                     0,        # annotations_off
+                     code0 - len(run_code) - len(helper_code) - len(cd) + 0 * 0 + (code0 - len(run_code)),  # placeholder, fixed below
+                     0)
+    struct.pack_into("<I", buf, class_defs_off + 24, code0 - len(run_code) - len(helper_code) - len(cd) + (base - base) + 0)
+    struct.pack_into("<I", buf, class_defs_off + 24, base)
     buf[data_off:total] = data
     buf[12:32] = hashlib.sha1(bytes(buf[32:total])).digest()
     struct.pack_into("<I", buf, 8, zlib.adler32(bytes(buf[12:total])) & 0xFFFFFFFF)
     return bytes(buf)
-
-
-def build_zip(files) -> bytes:
-    import io
-    import zipfile
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for name, payload in files:
-            archive.writestr(name, payload)
-    return buffer.getvalue()
-
 
 
 def _axml_pool(strings):
@@ -291,6 +329,16 @@ def build_manifest():
     parts.append(_axml_node(0x0101, struct.pack("<II", S("android"), S("http://schemas.android.com/apk/res/android"))))
     body = _axml_pool(strings) + b"".join(parts)
     return struct.pack("<HHI", 0x0003, 8, 8 + len(body)) + body
+
+
+def build_zip(files) -> bytes:
+    import io
+    import zipfile
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, payload in files:
+            archive.writestr(name, payload)
+    return buffer.getvalue()
 
 
 def build_apk(elf: bytes, dex: bytes) -> bytes:

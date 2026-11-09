@@ -179,12 +179,60 @@ def _analyze_dex(data: bytes, image: BinaryImage) -> schema.AnalysisResult:
         if len(findings) >= MAX_MEMBER_FINDINGS:
             break
     diags = [schema.Diagnostic("dex.bytecode.not_analyzed",
-                               "Dalvik bytecode is inventoried (classes/methods/strings) but not disassembled",
+                               "Dalvik bytecode: method inventory and invoke-based call graph; opcodes are not disassembled",
                                "info", {"methods": len(inventory.methods)})]
+    graph_summary = dex_call_graph(data)
+    if graph_summary is not None:
+        stats = graph_summary.as_dict()["stats"]
+        findings.append(schema.Finding(
+            kind="dex_callgraph",
+            value="nodes=%d;edges=%d;framework_hidden=%d" % (
+                stats["methods"], stats["edges"], stats["hidden_framework"]),
+            confidence_permille=1000, level="L0", rule="dex.callgraph.build",
+            evidence=[schema.Evidence(offset=0, space="file", rule="dex.callgraph.build")]))
     return schema.AnalysisResult(
         target_sha256=_sha(data), target_kind="dex", target_size=len(data), status="ok",
         findings=schema.enforce_rules(findings), diagnostics=diags,
     )
+
+
+def dex_call_graph(data: bytes, include_framework: bool = False):
+    """Method-level call graph for one .dex image (or None when unparsable)."""
+    from .formats import dexgraph as dexgraph_mod
+    try:
+        return dexgraph_mod.build(data, include_framework=include_framework)
+    except Exception:  # noqa: BLE001 - a broken dex must not fail the whole analysis
+        return None
+
+
+def dex_call_graph_for_container(data: bytes, include_framework: bool = False):
+    """Merge the call graphs of every classes*.dex inside an .apk."""
+    from .formats import container as container_mod
+    from .formats import dexgraph as dexgraph_mod
+    try:
+        parts = container_mod.read_apk(data)
+    except container_mod.ContainerError:
+        return None
+    merged = dexgraph_mod.DexGraph()
+    offset = 0
+    for _name, payload in parts.dex:
+        graph = dex_call_graph(payload, include_framework=include_framework)
+        if graph is None:
+            continue
+        remap = {}
+        for node in graph.nodes:
+            remap[node.id] = node.id + offset
+            merged.nodes.append(dexgraph_mod.DexNode(node.id + offset, node.label,
+                                                    node.class_name, node.framework))
+        for edge in graph.edges:
+            merged.edges.append(dexgraph_mod.DexEdge(remap.get(edge.caller, edge.caller + offset),
+                                                     remap.get(edge.callee, edge.callee + offset),
+                                                     edge.kind))
+        merged.methods_scanned += graph.methods_scanned
+        merged.methods_with_code += graph.methods_with_code
+        merged.hidden_nodes += graph.hidden_nodes
+        offset += max([n.id for n in graph.nodes], default=0) + 1
+    return merged
 
 
 def _manifest_findings(manifest: "axml_mod.Manifest") -> List[schema.Finding]:

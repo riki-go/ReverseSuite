@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
                          help="run the experimental value-set pass (slower)")
     analyze.add_argument("--no-members", action="store_true",
                          help="for .apk/.ipa: list members but do not analyse them")
+    analyze.add_argument("--all-methods", action="store_true",
+                         help="for .dex/.apk: keep framework/library methods in the DEX call graph")
     dis = sub.add_parser("disasm", help="stream disassembly to JSONL")
     dis.add_argument("path")
     dis.add_argument("--out", required=True)
@@ -323,8 +325,17 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # never leak tracebacks to the user
             print(f"internal error: {exc.__class__.__name__}", file=sys.stderr)
             return EXIT_INTERNAL
+        dex_graph = None
+        if detected in (formats.FORMAT_DEX, formats.FORMAT_APK):
+            if detected == formats.FORMAT_APK:
+                dex_graph = analysis_mod.dex_call_graph_for_container(data, args.all_methods)
+            else:
+                dex_graph = analysis_mod.dex_call_graph(data, args.all_methods)
         if args.json:
-            sys.stdout.write(multi.to_canonical_json())
+            payload = json.loads(multi.to_canonical_json())
+            if dex_graph is not None:
+                payload["dex_graph"] = dex_graph.as_dict()
+            sys.stdout.write(json.dumps(payload, sort_keys=True, ensure_ascii=False))
             sys.stdout.write(chr(10))
         else:
             counts: dict = {}
@@ -336,6 +347,10 @@ def main(argv: list[str] | None = None) -> int:
             print("findings %d  diagnostics %d" % (len(multi.findings), len(multi.diagnostics)))
             for kind in sorted(counts):
                 print("  %-12s %d" % (kind, counts[kind]))
+            if dex_graph is not None:
+                stats = dex_graph.as_dict()["stats"]
+                print("dexgraph %d nodes / %d edges (methods scanned %d, framework hidden %d)" % (
+                    stats["methods"], stats["edges"], stats["scanned"], stats["hidden_framework"]))
             for diag in multi.diagnostics[:20]:
                 print("diag    %s: %s" % (diag.code, diag.message))
         return {"ok": EXIT_OK, "degraded": EXIT_DEGRADED, "failed": EXIT_FAILED}[multi.status]
