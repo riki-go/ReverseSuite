@@ -263,7 +263,8 @@ th{background:#f7f7f7}.muted{color:#666}
 .ok{background:#d7f5dd;color:#12602a}.bad{background:#ffe0e0;color:#8a1c1c}
 </style></head><body>
 <h1>ReverseSuite <span id="status" class="pill bad">checking...</span></h1>
-<p class="muted">Static PE analysis: functions, strings, call graph, diff and reports.</p>
+<p class="muted">Static analysis for Windows PE, iOS Mach-O (.ipa) and Android (.apk/.dex/.so):
+          functions, strings, call graph, diff and reports.</p>
 <div class="row" id="tokenrow">
   <input id="token" type="password" placeholder="session token">
   <button id="save">use token</button>
@@ -620,6 +621,16 @@ th{background:#f7f7f7}.muted{color:#666}
       return { addr: addr, label: "0x" + addr.toString(16), color: "#6b7280" };
     });
     var limit = 400;
+    // Keep the most connected nodes first, otherwise the 400-node cap can keep a
+    // set of isolated nodes and the edge filter below yields an empty graph.
+    var degree = {};
+    doc.graph.edges.forEach(function (e) {
+      if (e.caller !== null && e.caller !== undefined) degree[e.caller] = (degree[e.caller] || 0) + 1;
+      if (e.callee !== null && e.callee !== undefined) degree[e.callee] = (degree[e.callee] || 0) + 1;
+    });
+    nodes.sort(function (a, b) {
+      return (degree[b.addr] || 0) - (degree[a.addr] || 0) || a.addr - b.addr;
+    });
     if (nodes.length > limit) {
       nodes = nodes.slice(0, limit);
     }
