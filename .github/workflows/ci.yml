@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: install
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python.exe -m pip install --upgrade pip
+          .venv/Scripts/python.exe -m pip install capstone==5.0.9
+      - name: unit tests
+        env:
+          PYTHONPATH: src
+        run: .venv/Scripts/python.exe -m unittest discover -s tests -t tests
+      - name: reproducible build
+        continue-on-error: true
+        run: .venv/Scripts/python.exe build/repro_check.py
+
+  desktop:
+    runs-on: windows-latest
+    needs: python
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: installer
+        continue-on-error: true
+        run: pwsh -File build.ps1
