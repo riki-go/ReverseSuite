@@ -16,7 +16,7 @@ from . import diff as diff_mod
 from . import api as api_mod
 from . import report as report_mod
 from . import strings as strings_mod
-from . import cache as cache_mod, disasm, loader, schema
+from . import analysis as analysis_mod, cache as cache_mod, disasm, loader, schema, formats
 
 EXIT_OK, EXIT_DEGRADED, EXIT_FAILED, EXIT_USAGE, EXIT_INTERNAL = 0, 2, 3, 4, 5
 
@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     analyze.add_argument("--disasm-out", default="", help="also stream disassembly to this JSONL path")
     analyze.add_argument("--valueflow", action="store_true",
                          help="run the experimental value-set pass (slower)")
+    analyze.add_argument("--no-members", action="store_true",
+                         help="for .apk/.ipa: list members but do not analyse them")
     dis = sub.add_parser("disasm", help="stream disassembly to JSONL")
     dis.add_argument("path")
     dis.add_argument("--out", required=True)
@@ -311,6 +313,32 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"cannot read input: {exc}", file=sys.stderr)
         return EXIT_USAGE
+
+    detected = formats.detect(data, args.path)
+    if detected != formats.FORMAT_PE:
+        try:
+            multi = analysis_mod.analyze_bytes(data, args.path, args.min_string_length,
+                                               do_functions=True,
+                                               include_members=not args.no_members)
+        except Exception as exc:  # never leak tracebacks to the user
+            print(f"internal error: {exc.__class__.__name__}", file=sys.stderr)
+            return EXIT_INTERNAL
+        if args.json:
+            sys.stdout.write(multi.to_canonical_json())
+            sys.stdout.write(chr(10))
+        else:
+            counts: dict = {}
+            for item in multi.findings:
+                counts[item.kind] = counts.get(item.kind, 0) + 1
+            print("target  %s  %d bytes" % (multi.target_sha256[:16], multi.target_size))
+            print("kit     %s   format=%s" % (multi.target_kind, detected))
+            print("status  %s" % multi.status)
+            print("findings %d  diagnostics %d" % (len(multi.findings), len(multi.diagnostics)))
+            for kind in sorted(counts):
+                print("  %-12s %d" % (kind, counts[kind]))
+            for diag in multi.diagnostics[:20]:
+                print("diag    %s: %s" % (diag.code, diag.message))
+        return {"ok": EXIT_OK, "degraded": EXIT_DEGRADED, "failed": EXIT_FAILED}[multi.status]
 
     try:
         result = loader.parse(data)

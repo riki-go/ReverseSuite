@@ -1,8 +1,23 @@
-# ReverseSuite
+# ReverseSuite 0.3.0
 
-Static PE analysis toolkit: loader, disassembly, function discovery, string
-extraction, call graph, graph diff and diff reports — plus a local API/UI and a
-desktop wrapper.
+Static **universal** binary analysis toolkit: Windows PE, iOS Mach-O (`.ipa`),
+Android (`.apk` / `.dex` / `.so`) and Linux ELF — loader, disassembly,
+function discovery, string extraction, call graph, graph diff and diff reports,
+plus a local API/UI and a desktop wrapper. Nothing is ever executed.
+
+## Supported formats
+
+| Format | Entry points | What is analysed |
+| --- | --- | --- |
+| Windows PE | `.exe` `.dll` `.sys` | sections, imports/exports, strings + xref, functions, call graph, diff/report |
+| iOS Mach-O | `.ipa`, Mach-O file | fat/thin slices, `__TEXT,__text`, `__cstring`, symbols, ARM64 prologues, `cryptid` |
+| Android APK | `.apk` | `AndroidManifest.xml` presence, every `classes*.dex`, every `lib/<abi>/*.so` |
+| Dalvik DEX | `.dex` | classes, methods, fields, string table (bytecode inventory only) |
+| ELF | `.so`, `.elf`, Linux binaries | x86, x86-64, ARM, AArch64: sections, dynsym, ARM64 prologues |
+
+Format detection is magic-byte based (never extension-only). The runtime uses the
+Python standard library plus capstone only: `lief` is a **development** dependency
+used to generate and cross-check the synthetic fixtures under `fixtures/multi/`.
 
 ## Layout
 

@@ -1,14 +1,27 @@
-# ReverseSuite v0.2.1 - User Manual (English)
+# ReverseSuite v0.3.0 - User Manual (English)
 
-ReverseSuite is a static PE analysis tool. It scans binaries for functions, strings,
-call graphs and diffs, and never executes the target file.
+ReverseSuite is a universal static binary analyzer. It scans PE, Mach-O (.ipa),
+ELF (.so) and Android (.apk/.dex) files for functions, strings, call graphs and
+diffs, and never executes the target file.
+
+## Supported formats (0.3.0)
+
+| Family | Extensions | What is analysed |
+| --- | --- | --- |
+| Windows PE | `.exe` `.dll` `.sys` | sections, imports/exports, strings + xref, functions, call graph, diff, report |
+| iOS Mach-O | `.ipa`, Mach-O | IPA unpacking, `__TEXT,__text`, `__cstring`, symbols, ARM64 prologues, `cryptid` |
+| Android APK | `.apk` | manifest presence, every `classes*.dex`, every `lib/<abi>/*.so` |
+| Dalvik DEX | `.dex` | classes, methods, fields, string table (no bytecode disassembly) |
+| ELF | `.so`, Linux | x86 / x86-64 / ARM / AArch64 sections, dynsym, ARM64 functions |
+
+Detection is magic-byte based, so a renamed file is still classified correctly.
 
 ---
 
 ## 1. Installation
 
 1. **Remove old versions** - Settings > Apps > Installed apps > search `ReverseSuite` > Uninstall
-2. **Install** - open `ReverseSuite_0.2.1_x64_en-US.msi` and follow the wizard
+2. **Install** - open `ReverseSuite_0.3.0_x64_en-US.msi` and follow the wizard
 3. **Launch** - Start menu > type `ReverseSuite` > Enter
 
 > The MSI is not code-signed. If SmartScreen warns, choose **More info** > **Run anyway**.
@@ -29,7 +42,7 @@ call graphs and diffs, and never executes the target file.
 
 Three ways to feed a file:
 
-1. Type an absolute path, e.g. `D:\samples\b.exe`
+1. Type an absolute path, e.g. `D:\samples\b.exe`, `D:\samples\app.apk`, `D:\samples\MyApp.ipa`
 2. Type a URL starting with `http://` or `https://` (downloaded to a temp folder, removed afterwards)
 3. Drag a file from Explorer into the box, or press **browse...**
 
@@ -104,4 +117,4 @@ force-directed, and large graphs are capped at the first 400 nodes (the status l
 
 ---
 
-ReverseSuite v0.2.1 - MIT License.
+ReverseSuite v0.3.0 - MIT License.

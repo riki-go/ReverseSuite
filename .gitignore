@@ -19,3 +19,5 @@ fixtures/build_*.bat
 .pytest_cache/
 .mypy_cache/
 dist/release/
+build/_*
+src-tauri/gen/

@@ -1,21 +1,26 @@
 ---
 name: reversesuite
-description: Static PE analysis with the ReverseSuite CLI/API - analyze binaries, extract strings and call graphs, diff two builds, render reports, or serve the local UI.
+description: Static multi-format analysis with ReverseSuite - Windows PE, iOS Mach-O (.ipa), Android (.apk/.dex/.so), strings, functions, call graphs, diffs and reports.
 ---
 
 # ReverseSuite
 
 ## Overview
 
-สแตติกวิเคราะห์ PE (ไม่รันไฟล์เป้าหมาย) — loader/functions/strings/call graph/diff/report และ local API+UI
+สแตติกวิเคราะห์ไบแนรี (ไม่รันไฟล์เป้าหมาย) รองรับ 4 ตระกูลไฟล์:
+
+- **Windows PE** - `.exe` / `.dll` / `.sys` (x86/x64/ARM64): import, export, section, strings + xref, function discovery, call graph, diff, report
+- **iOS Mach-O** - `.ipa` (แตก ZIP อัตโนมัติ) หรือ Mach-O เดี่ยว: arm64 prologue discovery, `bl` call targets, `__cstring` strings, FairPlay `cryptid` detection
+- **Android** - `.apk` (แตก ZIP): `classes*.dex` inventory (classes/methods/strings) + `lib/<abi>/*.so` ผ่าน ELF loader
+- **Android/Linux ELF** - `.so` (arm64, x86_64, x86, arm): sections, dynsym, ARM64/UDF prologues
 
 ## When to use
 
-- ต้องดูโครงสร้างไฟล์ `.exe`/`.dll`: ฟังก์ชัน, สตริง, การเรียกใช้, import
-- ต้องเทียบสองบิลด์ (เก่า/ใหม่) ว่าเพิ่ม/ลบ/ย้ายอะไร แล้วออกรายงาน
-- ต้องให้เครื่องมืออื่นเรียกผ่าน HTTP loopback (API + token)
+- ตรวจไฟล์ `.exe`/`.dll`/`.so`/`.dylib`/`.dex` หรือแพ็กเกจ `.apk`/`.ipa`: โครงสร้าง, ฟังก์ชัน, สตริง, การเรียกใช้
+- เทียบสองบิลด์ (เก่า/ใหม่) ว่าเพิ่ม/ลบ/ย้ายอะไร แล้วออกรายงาน
+- ให้เครื่องมืออื่นเรียกผ่าน HTTP loopback (API + token)
 
-ไม่ใช้เมื่อ: ต้องการรัน/ดีบักไบแนรี (เครื่องมือนี้ static only) หรือไฟล์ `.text` ใหญ่เกิน 32 MB สำหรับ function/xref
+ไม่ใช้เมื่อ: ต้องการรัน/ดีบักไบแนรี (static only), ไฟล์ `.text` ใหญ่เกิน 32 MB สำหรับ function/xref, หรือต้องการ disassemble Dalvik bytecode (0.3.0 ทำ inventory เท่านั้น)
 
 ## Usage
 
@@ -23,13 +28,20 @@ description: Static PE analysis with the ReverseSuite CLI/API - analyze binaries
 $py = "projects\reversesuite\.venv\Scripts\python.exe"
 $env:PYTHONPATH = "projects\reversesuite\src"
 
-# วิเคราะห์ไฟล์เดียว (path หรือ URL)
+# Windows PE
 & $py -m reversesuite.cli analyze fixtures\frozen\b.exe
-
-# call graph (เพิ่ม --valueflow ถ้าต้องการทดลอง M6.1)
 & $py -m reversesuite.cli calls fixtures\frozen\b.exe --json
 
-# diff + report
+# iOS: อ่าน .ipa ทั้งแพ็กเกจ (Mach-O + __cstring + ARM64 functions)
+& $py -m reversesuite.cli analyze MyApp.ipa
+& $py -m reversesuite.cli analyze MyApp.ipa --no-members      # เฉพาะสรุปแพ็กเกจ
+
+# Android: .apk (classes.dex + lib/arm64-v8a/*.so)
+& $py -m reversesuite.cli analyze app-release.apk
+& $py -m reversesuite.cli analyze classes.dex --json
+& $py -m reversesuite.cli analyze lib/arm64-v8a/libnative.so
+
+# diff + report (PE)
 & $py -m reversesuite.cli diff fixtures\frozen\b.exe fixtures\frozen\a.exe --ignore-thunks
 & $py -m reversesuite.cli report b.exe a.exe --format html --out out.html
 
@@ -38,17 +50,23 @@ $env:PYTHONPATH = "projects\reversesuite\src"
 ```
 
 เรียกจาก API: `POST /analyze`, `/diff`, `/report` พร้อม header `Authorization: Bearer <token>`; รับ `path`, URL หรือ `upload_id` (`POST /upload`)
+UI รับไฟล์ `.apk`/`.ipa`/`.so`/`.dex` เพิ่มจาก `.exe`/`.dll` แล้ว (ตรวจ magic bytes ไม่ใช่แค่นามสกุล)
 
 ## Verification
 
 ```powershell
-& $py -m unittest discover -s tests
-# expected: OK (152 tests)
+& $py -m unittest discover -s tests -t tests
+# expected: OK (177 tests)
+& $py fixtures\gen_multi.py
+# regenerates fixtures/multi/{arm64_demo.so,ios_demo,classes.dex,demo.apk,demo.ipa}
 ```
 
 ## Limits
 
 - static only: ไม่รัน target; indirect call ที่ต้องใช้ dataflow ลึกยังไม่ resolve (M6.2/M6.3 deferred)
 - เพดาน 32 MB ของ `.text` สำหรับ function discovery/xref (ไฟล์ใหญ่ขึ้นไปจะได้ diagnostic)
+- Dalvik bytecode: อ่าน classes/methods/strings แต่ยังไม่ disassemble opcodes
+- FairPlay-encrypted iOS binaries (`cryptid != 0`) ให้ผลเป็น ciphertext; ต้องถอดรหัสก่อน
 - URL: จำกัด 256 MB, timeout 30 s, บล็อก private/link-local (ยกเว้น loopback)
 - rate limit 60 req/min ต่อ client
+- runtime ไม่พึ่ง lief/androguard (stdlib only) เพื่อคุมขนาดตัวติดตั้ง; lief ใช้เฉพาะตอนสร้าง fixture/ตรวจสอบ

@@ -16,6 +16,13 @@ import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 VERSION = "0.2.1"
+
+
+def _version() -> str:
+    import re
+    text = (ROOT / "src" / "reversesuite" / "version.py").read_text(encoding="utf-8")
+    match = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
+    return match.group(1) if match else VERSION
 MSI_SRC = ROOT / "src-tauri/target/release/bundle/msi" / ("ReverseSuite_%s_x64_en-US.msi" % VERSION)
 RELEASE_SRC = ROOT / "src-tauri/target/release"
 
@@ -101,6 +108,9 @@ def sha256(path: pathlib.Path) -> str:
 
 
 def main() -> int:
+    global VERSION, MSI_SRC
+    VERSION = _version()
+    MSI_SRC = ROOT / "src-tauri/target/release/bundle/msi" / ("ReverseSuite_%s_x64_en-US.msi" % VERSION)
     if not MSI_SRC.is_file():
         print("missing installer:", MSI_SRC, file=sys.stderr)
         return 2

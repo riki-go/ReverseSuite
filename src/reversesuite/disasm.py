@@ -22,9 +22,27 @@ WINDOW = 2 * 1024 * 1024
 BASE_ADDRESS = 0x1000
 
 
-def make_engine() -> capstone.Cs:
-    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-    md.detail = False
+ARCH_ALIASES = {"x86_64": "x64", "amd64": "x64", "i386": "x86", "aarch64": "arm64"}
+
+
+def engine_kwargs(arch: str = "x64") -> tuple:
+    """(capstone arch, mode) for a logical architecture name (M8)."""
+    arch = ARCH_ALIASES.get(arch, arch)
+    if arch == "x64":
+        return (capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    if arch == "x86":
+        return (capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    if arch == "arm64":
+        return (capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM)
+    if arch == "arm":
+        return (capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM | capstone.CS_MODE_LITTLE_ENDIAN)
+    raise ValueError(f"unsupported architecture: {arch}")
+
+
+def make_engine(arch: str = "x64", detail: bool = False) -> capstone.Cs:
+    cs_arch, cs_mode = engine_kwargs(arch)
+    md = capstone.Cs(cs_arch, cs_mode)
+    md.detail = detail
     return md
 
 
@@ -62,7 +80,11 @@ def open_writer(path: Path, use_gzip: bool = False):
 def _window_lines(payload):
     """Worker: decode one fixed window and return serialized JSONL bytes."""
     blob, base, slim = payload
-    engine = make_engine()
+    if len(payload) > 3:
+        arch = payload[3]
+        engine = make_engine(arch)
+    else:
+        engine = make_engine()
     out = bytearray()
     end = base + len(blob)
     for insn in engine.disasm(blob, base):

@@ -1,13 +1,25 @@
-# คู่มือการใช้งาน ReverseSuite v0.2.1 (ฉบับภาษาไทย)
+# คู่มือการใช้งาน ReverseSuite v0.3.0 (ฉบับภาษาไทย)
 
-ReverseSuite คือเครื่องมือวิเคราะห์ไฟล์โปรแกรม (Static PE Analysis) ที่สแกนหา **ฟังก์ชัน (Functions)**, **ข้อความ (Strings)**, **กราฟการเรียกใช้ฟังก์ชัน (Call Graph)** และ**เปรียบเทียบไฟล์ (Diff)** ได้อย่างรวดเร็วและปลอดภัย — ไม่รันไฟล์เป้าหมายเลย (static only)
+ReverseSuite คือเครื่องมือวิเคราะห์ไฟล์โปรแกรมแบบ **Universal Static Analysis** ที่สแกนหา **ฟังก์ชัน (Functions)**, **ข้อความ (Strings)**, **กราฟการเรียกใช้ฟังก์ชัน (Call Graph)** และ**เปรียบเทียบไฟล์ (Diff)** — ไม่รันไฟล์เป้าหมายเลย (static only)
+
+## รองรับไฟล์อะไรบ้าง (v0.3.0)
+
+| ตระกูลไฟล์ | นามสกุล | สิ่งที่วิเคราะห์ได้ |
+| --- | --- | --- |
+| Windows PE | `.exe` `.dll` `.sys` | section, import/export, strings + xref, ฟังก์ชัน, call graph, diff, report |
+| iOS Mach-O | `.ipa` หรือไฟล์ Mach-O | แตก ipa อัตโนมัติ, `__TEXT,__text`, `__cstring`, symbol, ARM64 prologue, ตรวจ `cryptid` (FairPlay) |
+| Android APK | `.apk` | ตรวจ manifest, ทุก `classes*.dex`, ทุก `lib/<abi>/*.so` |
+| Dalvik DEX | `.dex` | classes, methods, fields, ตาราง string (ยังไม่ disassemble bytecode) |
+| ELF | `.so`, ไฟล์ Linux | x86 / x86-64 / ARM / AArch64: section, dynsym, ฟังก์ชัน ARM64 |
+
+> การตรวจจับประเภทไฟล์ดูจาก magic bytes จริง ไม่ได้ดูแค่นามสกุล — เปลี่ยนนามสกุลก็ยังวิเคราะห์ถูก
 
 ---
 
 ## 🛠️ ส่วนที่ 1: การติดตั้ง (Installation)
 
 1. **ถอนตัวเก่า (ถ้ามี)** — Settings → Apps → Installed apps → ค้นหา `ReverseSuite` → Uninstall
-2. **ติดตั้งตัวใหม่** — เปิดโฟลเดอร์ `src-tauri\target\release\bundle\msi\` แล้วดับเบิ้ลคลิก `ReverseSuite_0.2.1_x64_en-US.msi`
+2. **ติดตั้งตัวใหม่** — ดับเบิ้ลคลิก `ReverseSuite_0.3.0_x64_en-US.msi` (อยู่ในโฟลเดอร์แพ็กเกจแจกจ่าย)
 3. **เปิดโปรแกรม** — กด Start → พิมพ์ `ReverseSuite` → เปิดแอป
 
 > ถ้า Windows SmartScreen เตือน ให้กด **More info** → **Run anyway** (ไฟล์ยังไม่ได้ซื้อ certificate จาก CA)
@@ -31,7 +43,7 @@ ReverseSuite คือเครื่องมือวิเคราะห์�
 
 ### วิธีนำไฟล์เข้า (3 วิธี)
 
-1. **พิมพ์ Absolute Path** เช่น `D:\OpenClaw\workspace\projects\reversesuite\fixtures\frozen\b.exe`
+1. **พิมพ์ Absolute Path** เช่น `D:\samples\b.exe` หรือ `D:\samples\app-release.apk` หรือ `D:\samples\MyApp.ipa`
 2. **พิมพ์ URL** ที่ขึ้นต้นด้วย `http://` หรือ `https://` — ระบบจะดาวน์โหลดลง Temp แล้วลบทิ้งเมื่อวิเคราะห์เสร็จ
 3. **ลากไฟล์มาวาง (Drag & Drop)** จาก Explorer ลงในช่อง หรือกด **browse…** เพื่อเลือกไฟล์
 

@@ -20,6 +20,11 @@ CONF_ENTRY = 950
 CONF_CALL = 900
 
 TERMINATORS = {"ret", "retf", "jmp", "int3", "ud2", "hlt"}
+ARM_TERMINATORS = {"ret", "retaa", "retab", "br", "b", "udf", "brk"}
+ARCH_TERMINATORS = {"x86": TERMINATORS, "x64": TERMINATORS, "arm": ARM_TERMINATORS,
+                    "arm64": ARM_TERMINATORS}
+BRANCH_MNEMONICS = {"x86": ("call",), "x64": ("call",), "arm": ("bl", "blx"), "arm64": ("bl",)}
+TAIL_MNEMONICS = {"x86": ("jmp",), "x64": ("jmp",), "arm": ("b",), "arm64": ("b",)}
 MAX_INSNS_PER_FUNCTION = 20000
 THUNK_MAX_BYTES = 16
 MAX_FUNCTION_TEXT_BYTES = 32 * 1024 * 1024
@@ -54,7 +59,7 @@ def _build_index(engine: capstone.Cs, blob: bytes, base: int):
     return index
 
 
-def _scan_from(engine: capstone.Cs, blob: bytes, base: int, start: int):
+def _scan_from(engine: capstone.Cs, blob: bytes, base: int, start: int, terminators=frozenset(TERMINATORS)):
     """Decode from an address that the linear index may have missed."""
     off = start - base
     if off < 0 or off >= len(blob):
@@ -63,13 +68,13 @@ def _scan_from(engine: capstone.Cs, blob: bytes, base: int, start: int):
     addr = start
     for insn in engine.disasm(blob[off:], addr):
         seq.append((insn.address, insn.size, insn.mnemonic, insn.op_str))
-        if insn.mnemonic in TERMINATORS:
+        if insn.mnemonic in terminators:
             return seq, True
         if len(seq) >= MAX_INSNS_PER_FUNCTION:
             return seq, False
-    return seq, bool(seq and seq[-1][2] in TERMINATORS)
+    return seq, bool(seq and seq[-1][2] in terminators)
 
-def _decode_body(index: dict, base: int, start: int, limit: int):
+def _decode_body(index: dict, base: int, start: int, limit: int, terminators=frozenset(TERMINATORS)):
     """Walk the index from start until a terminator. Returns (end, terminated, count)."""
     addr = start
     count = 0
@@ -77,14 +82,14 @@ def _decode_body(index: dict, base: int, start: int, limit: int):
         size, mnemonic, _op = index[addr]
         addr += size
         count += 1
-        if mnemonic in TERMINATORS:
+        if mnemonic in terminators:
             return (addr, True, count)
     return (addr, False, count)
 
 RULE_FUNCTION = "pe.function.discover"
 
 
-def to_findings(funcs: Iterable["Function"]):
+def to_findings(funcs: Iterable["Function"], rule: str = RULE_FUNCTION):
     """AC-14: convert discovered functions into schema findings."""
     out = []
     for fn in funcs:
@@ -93,20 +98,47 @@ def to_findings(funcs: Iterable["Function"]):
             value=f"0x{fn.start:x}",
             confidence_permille=fn.confidence_permille,
             level=fn.level,
-            rule=RULE_FUNCTION,
-            evidence=[schema.Evidence(offset=fn.start, space="va", xref=None, rule=RULE_FUNCTION)],
+            rule=rule,
+            evidence=[schema.Evidence(offset=fn.start, space="va", xref=None, rule=rule)],
         ))
     return out
+
+
+def _prologue_at(index: dict, addr: int, size: int, mnemonic: str, op_str: str, arch: str) -> bool:
+    """Architecture-specific function prologue heuristic."""
+    compact = op_str.replace(" ", "")
+    if arch in ("x86", "x64"):
+        if mnemonic != "push" or compact != "rbp":
+            return False
+        nxt = index.get(addr + size)
+        if nxt is None:
+            return False
+        _ns, nmn, nop = nxt
+        flat = nop.replace(" ", "")
+        return bool((nmn == "mov" and flat in ("rbp,rsp", "ebp,esp"))
+                    or nmn == "push"
+                    or (nmn == "sub" and flat.startswith("rsp,")))
+    if arch == "arm64":
+        # stp x29, x30, [sp, #-N]!  /  stp w29, w30, [sp, #-N]!
+        return mnemonic == "stp" and compact.startswith(("x29,x30,[sp", "w29,w30,[sp"))
+    if arch == "arm":
+        return mnemonic == "push" and compact.startswith(("{r4", "{r7", "{fp", "{lr"))
+    return False
 
 
 def discover(blob: bytes, base: int = disasm.BASE_ADDRESS,
              exports: Optional[List[int]] = None,
              entry: Optional[int] = None,
              md: Optional[capstone.Cs] = None,
-             max_bytes: Optional[int] = MAX_FUNCTION_TEXT_BYTES) -> List[Function]:
+             max_bytes: Optional[int] = MAX_FUNCTION_TEXT_BYTES,
+             arch: str = "x64") -> List[Function]:
     if skip_reason(len(blob), max_bytes):
         return []
-    engine = md or disasm.make_engine()
+    arch = disasm.ARCH_ALIASES.get(arch, arch)
+    terminators = ARCH_TERMINATORS.get(arch, TERMINATORS)
+    branches = BRANCH_MNEMONICS.get(arch, ("call",))
+    tails = TAIL_MNEMONICS.get(arch, ("jmp",))
+    engine = md or disasm.make_engine(arch)
     index = _build_index(engine, blob, base)
     limit = base + len(blob)
 
@@ -117,28 +149,22 @@ def discover(blob: bytes, base: int = disasm.BASE_ADDRESS,
         seeds.setdefault(entry, set()).add("entry")
 
     for addr, (size, mnemonic, op_str) in index.items():
-        if mnemonic == "call" and op_str.startswith("0x"):
+        if mnemonic in branches and op_str.startswith("0x"):
             try:
                 target = int(op_str, 16)
             except ValueError:
                 continue
             if base <= target < limit:
                 seeds.setdefault(target, set()).add("call_target")
-        elif mnemonic == "push" and op_str == "rbp":
-            nxt = index.get(addr + size)
-            if nxt is not None:
-                _ns, nmn, nop = nxt
-                if (nmn == "mov" and nop.replace(" ", "") in ("rbp,rsp", "ebp,esp")) \
-                        or nmn == "push" \
-                        or (nmn == "sub" and nop.replace(" ", "").startswith("rsp,")):
-                    seeds.setdefault(addr, set()).add("prologue")
+        elif _prologue_at(index, addr, size, mnemonic, op_str, arch):
+            seeds.setdefault(addr, set()).add("prologue")
 
     bodies: Dict[int, tuple] = {}
     for start in sorted(seeds):
         if start in index:
-            end, terminated, count = _decode_body(index, base, start, limit)
+            end, terminated, count = _decode_body(index, base, start, limit, terminators)
         else:
-            seq, terminated = _scan_from(engine, blob, base, start)
+            seq, terminated = _scan_from(engine, blob, base, start, terminators)
             count = len(seq)
             for item in seq:
                 index.setdefault(item[0], (item[1], item[2], item[3]))
@@ -146,7 +172,7 @@ def discover(blob: bytes, base: int = disasm.BASE_ADDRESS,
         if not terminated:
             continue
         first = index.get(start)
-        if first is not None and first[1] == "jmp" and (end - start) <= THUNK_MAX_BYTES and first[2].startswith("0x"):
+        if first is not None and first[1] in tails and (end - start) <= THUNK_MAX_BYTES and first[2].startswith("0x"):
             try:
                 target = int(first[2], 16)
             except ValueError:

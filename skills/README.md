@@ -7,7 +7,7 @@
 | Skill | What it does | Path |
 | --- | --- | --- |
 | `winremote` | ควบคุมเดสก์ท็อป Windows ผ่าน MCP: snapshot, click, type, shortcut, OCR, process/port queries | [`winremote/SKILL.md`](winremote/SKILL.md) |
-| `reversesuite` | ใช้งาน ReverseSuite CLI/API: analyze, calls, diff, report, serve; ข้อจำกัดและวิธีตรวจผล | [`reversesuite/SKILL.md`](reversesuite/SKILL.md) |
+| `reversesuite` | ใช้งาน ReverseSuite CLI/API: analyze PE/Mach-O(.ipa)/ELF/APK/DEX, calls, diff, report, serve; ข้อจำกัดและวิธีตรวจผล | [`reversesuite/SKILL.md`](reversesuite/SKILL.md) |
 
 > เพิ่มสกิลใหม่แล้วอัปเดตตารางนี้ทุกครั้ง — ตารางนี้คือสัญญาระหว่างคนกับ AI
 
@@ -42,5 +42,6 @@ Copy-Item _TEMPLATE_SKILL.md my-skill\SKILL.md -Force
 
 ## สถานะ
 
-- สกิลที่ ship อยู่: `reversesuite`, `winremote`
+- สกิลที่ ship อยู่: `reversesuite` (v0.3.0: PE + iOS + Android), `winremote`
+- ตารางรองรับไฟล์ของ `reversesuite`: `.exe/.dll/.sys` (PE), `.ipa`/Mach-O, `.apk`, `.dex`, `.so/.elf` (ELF arm64/x86_64/x86/arm)
 - สกิลที่เลิกใช้: ลบโฟลเดอร์ + ลบแถวใน Index (อย่าทิ้งไฟล์ค้าง)

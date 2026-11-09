@@ -32,7 +32,7 @@ th{background:#f7f7f7}.muted{color:#666}
 <div class="row" id="drop-analyze">
   <textarea id="path" rows="1" placeholder="Absolute path, URL — or drop a file here"></textarea>
   <button id="browse-analyze" type="button">browse…</button>
-  <input id="file-analyze" type="file" accept=".exe,.dll,.bin" hidden>
+  <input id="file-analyze" type="file" accept=".exe,.dll,.bin,.sys,.so,.dylib,.elf,.dex,.apk,.ipa" hidden>
   <button id="run">analyze</button>
 </div>
 <p class="muted" id="uploadstate"></p>
@@ -43,12 +43,12 @@ th{background:#f7f7f7}.muted{color:#666}
   <div class="drop">
     <textarea id="left" rows="1" placeholder="left binary path"></textarea>
     <button id="browse-left" type="button">browse…</button>
-    <input id="file-left" type="file" accept=".exe,.dll,.bin" hidden>
+    <input id="file-left" type="file" accept=".exe,.dll,.bin,.sys,.so,.dylib,.elf,.dex,.apk,.ipa" hidden>
   </div>
   <div class="drop">
     <textarea id="right" rows="1" placeholder="right binary path"></textarea>
     <button id="browse-right" type="button">browse…</button>
-    <input id="file-right" type="file" accept=".exe,.dll,.bin" hidden>
+    <input id="file-right" type="file" accept=".exe,.dll,.bin,.sys,.so,.dylib,.elf,.dex,.apk,.ipa" hidden>
   </div>
   <label><input id="thunks" type="checkbox"> ignore thunks</label>
 </div>

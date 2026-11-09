@@ -45,14 +45,16 @@ RULE_UTF16 = "pe.string.utf16le"
 RULE_XREF = "pe.string.xref"
 
 
-def to_findings(items: Sequence["ExtractedString"], cap: int = 1000):
+def to_findings(items: Sequence["ExtractedString"], cap: int = 1000,
+                rule_ascii: str = RULE_ASCII, rule_utf16: str = RULE_UTF16,
+                rule_xref: str = RULE_XREF):
     """AC-14: convert extracted strings into schema findings."""
     out = []
     for item in items:
-        rule = RULE_ASCII if item.encoding == "ascii" else RULE_UTF16
+        rule = rule_ascii if item.encoding == "ascii" else rule_utf16
         evidence = [schema.Evidence(offset=item.address, space="va", xref=None, rule=rule)]
         for site in item.xrefs:
-            evidence.append(schema.Evidence(offset=site, space="va", xref=item.address, rule=RULE_XREF))
+            evidence.append(schema.Evidence(offset=site, space="va", xref=item.address, rule=rule_xref))
         out.append(schema.Finding(
             kind="string",
             value=item.value,
@@ -237,3 +239,31 @@ def extract_with_xrefs(data: bytes, min_length: int = MIN_LENGTH, workers: int =
         return strings
     return [ExtractedString(s.address, s.value, s.encoding, s.section, s.length, xrefs.get(s.address, ()))
             for s in strings]
+
+
+def extract_from_image(image, data: bytes, min_length: int = MIN_LENGTH) -> List["ExtractedString"]:
+    """Scan every non-executable section of a format-independent image (M8).
+
+    Addresses come from `BinaryImage` (already normalised to the 0x1000 space),
+    so strings from Mach-O __cstring and ELF .rodata line up with disassembly.
+    """
+    result: List[ExtractedString] = []
+    for sec in image.sections:
+        if sec.executable or not sec.raw_size:
+            continue
+        blob = data[sec.raw_ptr:sec.raw_ptr + sec.raw_size]
+        if not blob:
+            continue
+        used: List[Tuple[int, int]] = []
+        for addr, value in scan_ascii(blob, sec.va, min_length):
+            result.append(ExtractedString(addr, value, "ascii", sec.name, len(value)))
+            used.append((addr, addr + len(value)))
+        for addr, value in scan_utf16le(blob, sec.va, min_length):
+            span = (addr, addr + len(value) * 2)
+            if any(span[0] < u[1] and u[0] < span[1] for u in used):
+                continue
+            result.append(ExtractedString(addr, value, "utf16le", sec.name, len(value)))
+        if len(result) >= MAX_STRINGS:
+            break
+    result.sort(key=lambda s: (s.address, s.encoding))
+    return result

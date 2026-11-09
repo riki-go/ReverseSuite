@@ -28,7 +28,7 @@ from typing import Optional, Tuple
 from urllib.parse import urlsplit
 import urllib.parse
 
-from . import callgraph, diff as diff_mod, functions, loader, report as report_mod, rules, schema, strings
+from . import analysis, callgraph, diff as diff_mod, formats, functions, loader, report as report_mod, rules, schema, strings
 
 MAX_BODY = 64 * 1024
 MAX_UPLOAD = 256 * 1024 * 1024
@@ -69,8 +69,23 @@ def new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False) -> dict:
-    """Run loader + functions + strings + call graph and return a canonical doc."""
+SUPPORTED_MAGIC_HINTS = (b"MZ", b"\x7fELF", b"dex\n", b"PK", b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe",
+                        b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca")
+
+
+def _looks_like_supported(data: bytes) -> bool:
+    """Cheap pre-check before formatting a full error: PE, ELF, DEX, ZIP, Mach-O."""
+    return len(data) >= 4 and any(data.startswith(hint) for hint in SUPPORTED_MAGIC_HINTS)
+
+
+def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False,
+                  filename: str = "") -> dict:
+    """Analyse one file; PE keeps the callgraph path, other formats use the M8 pipeline."""
+    if formats.detect(data, filename) != formats.FORMAT_PE:
+        multi = analysis.analyze_bytes(data, filename)
+        doc = multi.canonical()
+        doc["graph"] = callgraph.CallGraph().as_dict()
+        return doc
     result = loader.parse(data)
     if result.status == "failed":
         return result.canonical()
@@ -205,7 +220,7 @@ def download_to_temp(url: str, timeout: int = URL_TIMEOUT, max_bytes: int = URL_
                     raise FetchError("file_too_large")
                 chunks.append(chunk)
         data = b"".join(chunks)
-        if len(data) < 2 or data[:2] != b"MZ":
+        if not _looks_like_supported(data):
             raise FetchError("not_a_pe_file")
         target = Path(tempdir) / "download.bin"
         target.write_bytes(data)
@@ -258,7 +273,7 @@ th{background:#f7f7f7}.muted{color:#666}
 <div class="row" id="drop-analyze">
   <textarea id="path" rows="1" placeholder="Absolute path, URL — or drop a file here"></textarea>
   <button id="browse-analyze" type="button">browse…</button>
-  <input id="file-analyze" type="file" accept=".exe,.dll,.bin" hidden>
+  <input id="file-analyze" type="file" accept=".exe,.dll,.bin,.sys,.so,.dylib,.elf,.dex,.apk,.ipa" hidden>
   <button id="run">analyze</button>
 </div>
 <p class="muted" id="uploadstate"></p>
@@ -269,12 +284,12 @@ th{background:#f7f7f7}.muted{color:#666}
   <div class="drop">
     <textarea id="left" rows="1" placeholder="left binary path"></textarea>
     <button id="browse-left" type="button">browse…</button>
-    <input id="file-left" type="file" accept=".exe,.dll,.bin" hidden>
+    <input id="file-left" type="file" accept=".exe,.dll,.bin,.sys,.so,.dylib,.elf,.dex,.apk,.ipa" hidden>
   </div>
   <div class="drop">
     <textarea id="right" rows="1" placeholder="right binary path"></textarea>
     <button id="browse-right" type="button">browse…</button>
-    <input id="file-right" type="file" accept=".exe,.dll,.bin" hidden>
+    <input id="file-right" type="file" accept=".exe,.dll,.bin,.sys,.so,.dylib,.elf,.dex,.apk,.ipa" hidden>
   </div>
   <label><input id="thunks" type="checkbox"> ignore thunks</label>
 </div>
@@ -956,7 +971,7 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                     self._send(400, {"error": "bad_upload_size"})
                     return
                 body = self.rfile.read(length)
-                if len(body) < 2 or body[:2] != b"MZ":
+                if not _looks_like_supported(body):
                     self._send(400, {"error": "not_a_pe_file"})
                     return
                 name = urllib.parse.unquote(self.headers.get("X-Filename") or "upload.bin")

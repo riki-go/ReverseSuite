@@ -581,3 +581,71 @@ frozen: a.exe 7E01F46B…, a.pdb C45DF73D…, b.exe 3584E288…, b_unstripped.ex
   - **ไม่ rebuild MSI**: 0.2.1 ที่ปล่อยแล้วมีพฤติกรรมเท่ากับค่าเริ่มต้นของ source (valueflow ปิด) จึงไม่มี artifact ค้าง; ผู้ใช้ที่ต้องการทดลองใช้ CLI/API flag
   - AC-25c/25e ยังคงผ่าน (site recall 1.0000, precision direct+import 0.9843, deterministic); unittest **152/152 OK**
   - **สถานะโปรเจกต์: Complete ที่ v0.2.1 — Standby รอ UAT**
+
+---
+
+## M8 - Universal Analyzer (v0.3.0)
+
+Status: implemented 2026-11-09. Supersedes the PE-only scope of M1-M6 for input formats;
+PE behaviour itself is unchanged.
+
+### Phase 1 - Multi-format core
+
+- `src/reversesuite/formats/`: `base.BinaryLoader` (ABC) + `PELoader`, `MachOLoader`,
+  `ELFLloader`, `DEXLoader`; `loader_for(fmt)` registry; `build_image()` normalises every
+  format into one address space (primary code section at 0x1000).
+- Detection is magic-byte based: `MZ`+`PE\0\0`, `\x7fELF`, `dex\n`, Mach-O thin/fat, ZIP
+  (then `.apk` vs `.ipa` by member names).
+- `disasm.make_engine(arch)` covers x86, x64, ARM and ARM64; Dalvik is intentionally not
+  disassembled.
+- `functions.discover(..., arch=)` adds ARM64 prologue seeds (`stp x29, x30, [sp, #-N]!`),
+  `bl`/`b` branch seeds and per-arch terminators.
+
+### Phase 2 - iOS
+
+- `.ipa` is opened with `zipfile` in memory; the main binary is `Payload/<App>.app/<App>`,
+  with frameworks listed and analysed when resolvable.
+- `__TEXT,__text` is the code section; `__cstring` feeds string extraction with normalised
+  addresses; `LC_SYMTAB` provides symbols/exports.
+- `LC_ENCRYPTION_INFO_64` sets `metadata.cryptid` and emits the `macho.encrypted` diagnostic
+  for FairPlay binaries; `__LLVM` sections emit `macho.bitcode`.
+
+### Phase 3 - Android
+
+- `.apk`: manifest presence, every `classes*.dex`, every `lib/<abi>/*.so`, with per-member
+  attribution (`package.member.parse`) and a size cap per member (64 MB analysed).
+- `.dex`: stdlib parser for string ids, type ids, proto/method/field ids and class_defs;
+  findings are `class`, `method`, `string` and the `dex.bytecode.not_analyzed` info diagnostic.
+- `.so`: ELF loader + ARM64/x86 engines, so Android native libraries get sections, dynsym and
+  function discovery exactly like desktop ELF.
+
+### Phase 4 - UI, skills, release
+
+- API `analyze_bytes` routes non-PE inputs through `reversesuite.analysis`; the upload guard
+  accepts PE/ELF/DEX/ZIP/Mach-O magic instead of `MZ` only.
+- UI file inputs accept `.exe,.dll,.bin,.sys,.so,.dylib,.elf,.dex,.apk,.ipa`.
+- `skills/reversesuite/SKILL.md` and `skills/README.md` document the new formats and commands.
+- Version bumped to 0.3.0 in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`
+  and `src/reversesuite/version.py` (`APP_VERSION`).
+- `fixtures/gen_multi.py` generates the synthetic fixtures; LIEF (dev-only) validates them.
+
+### Deviations from the original brief
+
+- **No runtime dependency on `lief` or `androguard`.** Both were requested, but shipping them
+  would add ~40 MB to the single-file sidecar and duplicate parsers we already need for the
+  PE path. `lief` is installed as a *development* dependency for fixture generation and
+  cross-checking (ELF ARCH.AARCH64, Mach-O slice count, DEX string count); the runtime stays
+  stdlib + capstone. `androguard` was dropped for the same reason: the stdlib DEX parser covers
+  the requested static inventory.
+- **`loader.py` stays untouched.** The ABC lives in `formats/base.py` and `PELoader` wraps the
+  existing stdlib PE parser, so the 155 legacy tests and the objdump agreement numbers are
+  preserved bit-for-bit.
+- **Dalvik is not disassembled.** Agreed in the brief; a `dex.bytecode.not_analyzed` info
+  diagnostic makes the boundary explicit in every result.
+
+### Verification
+
+- `python -m unittest discover -s tests -t tests` -> 177 tests OK (155 legacy + 22 new)
+- `fixtures/gen_multi.py` -> ELF AARCH64 (6 sections), Mach-O (1 slice), DEX (6 strings),
+  plus `demo.apk` and `demo.ipa` containers
+- CLI: `analyze` on all five fixtures returns `status=ok` with format-specific findings
