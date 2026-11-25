@@ -53,7 +53,7 @@ file format and reading bytes.
 | 🍎 | **iOS Mach-O / `.ipa`** | Fat/thin slices, ARM64 function discovery, `__cstring`, symbols, **FairPlay encryption detection** (`cryptid`) |
 | 🤖 | **Android `.apk` / `.dex`** | Decoded binary `AndroidManifest.xml` (package, SDK, permissions, exported components) **plus a method-level DEX call graph** from Dalvik `invoke` bytecode |
 | 🐧 | **Linux ELF / `.so`** | Sections, symbols, entry point, function discovery for ARM64/x86-64 |
-| 🔍 | **Call graphs** | Direct / tail / thunk edges for native code; framework calls filtered out for DEX so only your app's code remains |
+| 🔍 | **Call graphs** | Direct / tail / thunk edges, inter-procedural register/stack value sets, and a vtable inventory with RTTI class names |
 | 🧮 | **Diff engine** | Compare two builds: added/removed functions and edges, "similar" matching, ignore-thunks mode |
 | 📊 | **Interactive graphs** | Force-directed SVG in the desktop app, export to SVG/PNG, diff graph mode |
 | 📄 | **Reports** | Self-contained HTML/JSON diff reports |

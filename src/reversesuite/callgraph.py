@@ -16,6 +16,7 @@ import capstone
 from . import callgraph_interproc, disasm, functions, loader, schema, valueflow
 
 RULE_EDGE = "pe.callgraph.edge"
+RULE_VTABLE = "pe.callgraph.vtable"
 
 KIND_DIRECT = "direct"
 KIND_TAIL = "tail"
@@ -61,6 +62,7 @@ class CallGraph:
     resolved_indirect: int = 0
     valueflow_resolved: int = 0
     interproc_resolved: int = 0
+    vtables: Tuple[Tuple[int, str, Tuple[int, ...]], ...] = ()
     unresolved_calls: int = 0
     tail_calls: int = 0
     thunk_calls: int = 0
@@ -82,6 +84,7 @@ class CallGraph:
             "resolved_indirect": self.resolved_indirect,
             "valueflow_resolved": self.valueflow_resolved,
             "interproc_resolved": self.interproc_resolved,
+            "vtables": [{"address": a, "name": n, "slots": list(s)} for a, n, s in self.vtables],
             "unresolved_calls": self.unresolved_calls,
             "tail_calls": self.tail_calls,
             "thunk_calls": self.thunk_calls,
@@ -295,6 +298,8 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
         indirect = max(0, indirect - extra_resolved)
 
     interproc_resolved = 0
+    vtables: Dict[int, Tuple[int, ...]] = {}
+    vtable_label: Dict[int, str] = {}
     if use_valueflow:
         view = valueflow.ImageView(data)
         sequences: Dict[int, List[capstone.CsInsn]] = {}
@@ -304,7 +309,9 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
                 continue
             body = text[off:off + max(fn.size, 1)]
             sequences[fn.start] = list(engine.disasm(body, fn.start))
-        for call in callgraph_interproc.resolve(sequences, node_set, view, base, limit, iat):
+        vtables = callgraph_interproc.find_vtables(view, node_set)
+        vtable_label = callgraph_interproc.vtable_names(view, vtables)
+        for call in callgraph_interproc.resolve(sequences, node_set, view, base, limit, iat, vtables):
             if call.site in resolved_sites:
                 continue
             owner = caller_of(call.site)
@@ -326,11 +333,13 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
                      resolved_indirect=resolved_indirect,
                      valueflow_resolved=extra_resolved,
                      interproc_resolved=interproc_resolved,
+                     vtables=tuple((a, vtable_label.get(a, ""), s)
+                                   for a, s in sorted(vtables.items())),
                      unresolved_calls=unresolved, tail_calls=tails, thunk_calls=thunked)
 
 
 def to_findings(graph: CallGraph):
-    """AC-14: one finding per resolved edge."""
+    """AC-14: one finding per resolved edge, plus one per detected vtable."""
     out = []
     for edge in graph.edges:
         out.append(schema.Finding(
@@ -341,5 +350,14 @@ def to_findings(graph: CallGraph):
             level=edge.kind,
             rule=RULE_EDGE,
             evidence=[schema.Evidence(offset=edge.site, space="va", xref=edge.callee, rule=RULE_EDGE)],
+        ))
+    for address, label, slots in graph.vtables:
+        out.append(schema.Finding(
+            kind="vtable",
+            value="%s0x%x;slots=%d;targets=%s" % (
+                (label + ":") if label else "", address, len(slots),
+                ",".join("0x%x" % s for s in slots)),
+            confidence_permille=700, level="L1", rule=RULE_VTABLE,
+            evidence=[schema.Evidence(offset=address, space="va", rule=RULE_VTABLE)],
         ))
     return out

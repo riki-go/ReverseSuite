@@ -69,6 +69,7 @@ register(Rule("pe.function.discover", "function bounds from CFG-lite recursive d
 register(Rule("pe.string.ascii", "printable ASCII string"))
 register(Rule("pe.string.utf16le", "UTF-16LE string"))
 register(Rule("pe.string.xref", "code reference to a string"))
+register(Rule("pe.callgraph.vtable", "report vtable arrays found in read-only data"))
 register(Rule("pe.callgraph.edge", "resolved caller -> callee edge"))
 
 # --- M8: multi-format loaders (PE / Mach-O / ELF / DEX / packages) ---
