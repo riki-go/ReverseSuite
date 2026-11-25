@@ -109,6 +109,20 @@ The MSI uninstall removes program files, registry keys and shortcuts, but keeps
 The packaged `uninstall-clean.ps1` runs the MSI uninstall and then deletes those
 folders; pass `-KeepUserData` to keep the default behaviour.
 
+### End-to-end UI test
+
+`tests/e2e_ui.py` drives the real page in headless Chromium: it starts the backend, sets a
+token, analyses a PE, opens the call graph, diffs two builds, checks the empty-input guard
+and renders the DEX graph from an APK. It is opt-in because it needs a browser:
+
+```powershell
+.venv\Scripts\python.exe -m pip install playwright
+.venv\Scripts\python.exe -m playwright install chromium
+.venv\Scripts\python.exe tests\e2e_ui.py
+```
+
+Expected: seven `PASS` lines and `all ui checks passed`.
+
 ---
 
 ## Under the hood
@@ -133,7 +147,7 @@ skills/         validated skill registry (reversesuite, winremote)
 | Disassembly | Capstone |
 | API | `http.server` on `127.0.0.1`, bearer token per session |
 | Desktop | Tauri v2 (Rust) + PyInstaller sidecar |
-| Tests | `unittest`, 192 cases, byte-exact fixture generators |
+| Tests | `unittest`, 196 cases, byte-exact fixture generators; plus `tests/e2e_ui.py` (Playwright) for the UI |
 
 ---
 
