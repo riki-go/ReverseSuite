@@ -5,6 +5,17 @@ description: Control this Windows desktop from an agent: snapshot, click, type, 
 
 # winremote (desktop control MCP)
 
+## Manual start only
+
+The server no longer starts automatically: the scheduled task `OpenClaw-WinRemoteMCP`
+is **disabled** and the process is not running. Start it only when the user asks:
+
+```powershell
+schtasks /run /tn "OpenClaw-WinRemoteMCP"   # start  -> listens on 127.0.0.1:8095
+schtasks /change /tn "OpenClaw-WinRemoteMCP" /disable   # stop autostart (already set)
+Stop-Process -Name winremote-mcp -Force      # stop the running server
+```
+
 ## Overview
 
 `winremote-mcp` เป็น MCP server ที่รันบนเครื่องนี้ เปิด HTTP ที่ `127.0.0.1:8095/mcp` ให้เอเจนต์
