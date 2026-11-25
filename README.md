@@ -14,23 +14,20 @@ _DEX method graphs, diffs and reports — from a CLI, a local API, or a desktop 
 ## AI skill (optional)
 
 `skills/reversesuite/SKILL.md` documents the toolkit for an AI agent - exact commands,
-JSON shapes (`dex_graph`), API parameters and the honest limits. Agents only load a skill
-that sits in a directory they scan, so point one at this folder.
+JSON shapes (`dex_graph`), API parameters and the honest limits.
 
-Windows, single source of truth (edits in the repo apply immediately):
-
-```powershell
-cmd /c mklink /J "%USERPROFILE%\.agents\skills\reversesuite" "D:\path\to\project\skills\reversesuite"
-```
-
-or a plain copy when junctions are not available:
+Agents only load a skill that sits in a directory they scan (`<workspace>/.agents/skills`,
+`~/.agents/skills`). OpenClaw does **not** follow Windows junctions, so each skill has to be
+a real directory - keep the copies in sync with the bundled script:
 
 ```powershell
-xcopy /e /i skills\reversesuite "%USERPROFILE%\.agents\skills\reversesuite"
+powershell -ExecutionPolicy Bypass -File build/sync-skills.ps1          # mirror + verify
+powershell -ExecutionPolicy Bypass -File build/sync-skills.ps1 -Check   # report drift only
 ```
 
-OpenClaw additionally scans `<workspace>/skills` and `<workspace>/.agents/skills`.
-Skill indexes are built when the agent session starts, so start a new session after installing.
+The script copies every `skills/<name>/` into both agent directories, removes stale files
+and fails when a `SKILL.md` hash differs. Restart the agent afterwards so its index is
+rebuilt.
 
 ---
 

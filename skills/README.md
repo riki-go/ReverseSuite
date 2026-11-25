@@ -49,17 +49,13 @@ Copy-Item _TEMPLATE_SKILL.md my-skill\SKILL.md -Force
 ## Installing into an agent
 
 Agents only see skills inside the directories they scan (for OpenClaw:
-`<workspace>/skills`, `<workspace>/.agents/skills`, `~/.agents/skills`).
-Keep one source of truth by linking this folder instead of copying it.
+`<workspace>/.agents/skills` and `~/.agents/skills`). The loader does **not** follow
+Windows junctions, so every skill must exist as a real copy. Use the bundled script so
+both directories stay identical:
 
 ```powershell
-# Windows junction - edits here take effect for the agent immediately
-cmd /c mklink /J "%USERPROFILE%\.agents\skills\reversesuite" "D:\path\to\project\skills\reversesuite"
-cmd /c mklink /J "%USERPROFILE%\.agents\skills\winremote"    "D:\path\to\project\skills\winremote"
-
-# or copy (must be re-copied after every edit)
-xcopy /e /i skills\reversesuite "%USERPROFILE%\.agents\skills\reversesuite"
+powershell -ExecutionPolicy Bypass -File build/sync-skills.ps1          # mirror + verify
+powershell -ExecutionPolicy Bypass -File build/sync-skills.ps1 -Check   # drift report
 ```
 
-The skill index is rebuilt when the agent session starts - restart or open a new session
-after installing.
+Rebuild the agent index afterwards (restart) - otherwise the skill is not listed.
