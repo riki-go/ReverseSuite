@@ -7,9 +7,10 @@
 2. **desktop** - freezes the backend with PyInstaller, runs `build.ps1` and uploads the
    produced MSI as an artifact.
 
-`docs/ci-real-build.yml` holds the version that builds the installer **for real**
-(`continue-on-error` removed, MSI uploaded). It cannot be pushed with a token that has
-no `workflow` scope, so it has to be applied through the GitHub web editor once:
+The workflow builds the installer **for real** - no `continue-on-error` - and uploads it
+as the `ReverseSuite-msi` artifact (verified: run 318a7ca, 13.5 MB). If it ever has to be
+re-applied, `docs/ci-real-build.yml` holds the same content and a token without
+`workflow` scope cannot push it, so use the web editor:
 
 1. open <https://github.com/riki-go/ReverseSuite/edit/master/.github/workflows/ci.yml>
 2. select everything, paste the contents of `docs/ci-real-build.yml`
