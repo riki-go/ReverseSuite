@@ -160,8 +160,72 @@ def iter_invokes(insns: bytes, base_pc: int = 0) -> Iterator[Tuple[int, int, str
         pc += max(width, 1)
 
 
+def _method_key(signature: str) -> Tuple[str, str]:
+    """'com.foo.Bar.run:V' -> ('run', 'V')."""
+    if ":" not in signature:
+        return signature.rsplit(".", 1)[-1], ""
+    head, proto = signature.split(":", 1)
+    return head.rsplit(".", 1)[-1], proto
+
+
+def _implementations(inventory) -> Dict[str, Dict[Tuple[str, str], int]]:
+    """class -> {(method_name, proto): method_idx} for every declared method."""
+    table: Dict[str, Dict[Tuple[str, str], int]] = {}
+    for cls, indices in inventory.class_methods.items():
+        for idx in indices:
+            if idx >= len(inventory.method_signatures):
+                continue
+            key = _method_key(inventory.method_signatures[idx])
+            table.setdefault(cls, {})[key] = idx
+    return table
+
+
+def _is_subclass(cls: str, ancestor: str, supers: Dict[str, str]) -> bool:
+    seen = set()
+    current = cls
+    while current and current not in seen:
+        if current == ancestor:
+            return True
+        seen.add(current)
+        current = supers.get(current, "")
+    return False
+
+
+def dispatch_edges(inventory, edges, include_framework: bool = False):
+    """Resolve virtual/interface calls to every in-dex implementation."""
+    impls = _implementations(inventory)
+    supers = inventory.superclasses
+    out = []
+    seen = set()
+    for edge in edges:
+        if edge.kind not in ("virtual", "interface", "super"):
+            continue
+        if edge.callee >= len(inventory.method_signatures):
+            continue
+        decl_sig = inventory.method_signatures[edge.callee]
+        decl_name = inventory.method_names[edge.callee]
+        decl_class = decl_name.rsplit(".", 1)[0]
+        key = _method_key(decl_sig)
+        for cls, methods in impls.items():
+            if cls == decl_class:
+                continue
+            if key not in methods:
+                continue
+            if not _is_subclass(cls, decl_class, supers):
+                continue
+            if not include_framework and is_framework(cls):
+                continue
+            target = methods[key]
+            marker = (edge.caller, target, "dispatch")
+            if marker in seen:
+                continue
+            seen.add(marker)
+            out.append(DexEdge(edge.caller, target, "dispatch"))
+    return out
+
+
 def build(data: bytes, include_framework: bool = False,
-          max_edges: int = 200000) -> DexGraph:
+          max_edges: int = 200000, resolve_dispatch: bool = False) -> DexGraph:
     """Build the method-level call graph for a .dex image."""
     inventory = dex_mod.parse(data)
     graph = DexGraph()
@@ -209,7 +273,21 @@ def build(data: bytes, include_framework: bool = False,
             known.setdefault(callee_idx, callee)
 
     node_ids = sorted({e[0] for e in edges} | {e[1] for e in edges})
-    graph.nodes = [known[i] for i in node_ids if i in known]
+    if resolve_dispatch:
+        for extra in dispatch_edges(inventory, [DexEdge(c, t, k) for (c, t, k) in sorted(edges)],
+                                    include_framework=include_framework):
+            if extra.callee not in known:
+                callee_node = node_for(extra.callee)
+                if callee_node is None:
+                    continue
+                known[extra.callee] = callee_node
+            if len(edges) >= max_edges:
+                break
+            edges.add((extra.caller, extra.callee, extra.kind))
+        node_ids = sorted({e[0] for e in edges} | {e[1] for e in edges})
+        graph.nodes = [known[i] for i in node_ids if i in known]
+
+    graph.nodes = graph.nodes or [known[i] for i in node_ids if i in known]
     graph.edges = [DexEdge(c, t, k) for (c, t, k) in sorted(edges)]
     return graph
 

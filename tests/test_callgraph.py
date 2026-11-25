@@ -86,5 +86,43 @@ class CallGraphTests(unittest.TestCase):
         self.assertEqual(graph.edges, ())
 
 
+class InterprocTests(unittest.TestCase):
+    """M6.2: stack spills, register copies and IAT loads resolve register calls."""
+
+    def _seq(self, code_bytes, address=0x1000):
+        import capstone
+        engine = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+        engine.detail = True
+        return list(engine.disasm(code_bytes, address))
+
+    def test_stack_spill_is_followed(self):
+        from reversesuite import callgraph_interproc as ci
+        # lea rax,[rip+0x10] -> 0x1017; mov [rbp-8],rax; call [rbp-8]
+        code = bytes.fromhex("488d0510000000" "488945f8" "ff55f8")
+        calls = ci.resolve_function(self._seq(code), {0x1017}, view=None)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].target, 0x1017)
+        self.assertTrue(calls[0].via.startswith("slot:"))
+
+    def test_register_copy_is_followed(self):
+        from reversesuite import callgraph_interproc as ci
+        # lea rbx,[rip+0x10] -> 0x1017; mov rax,rbx; call rax
+        code = bytes.fromhex("488d1d10000000" "4889d8" "ffd0")
+        calls = ci.resolve_function(self._seq(code), {0x1017}, view=None)
+        self.assertEqual([c.target for c in calls], [0x1017])
+
+    def test_iat_slot_resolves_to_import(self):
+        from reversesuite import callgraph_interproc as ci
+        # mov rax,[rip+0x10]; call rax with the slot mapped to an import
+        code = bytes.fromhex("488b0510000000" "ffd0")
+        iat = {0x1017: "KERNEL32.dll!ExitProcess"}
+        calls = ci.resolve_function(self._seq(code), set(), view=None, iat=iat)
+        self.assertEqual(calls[0].name, "KERNEL32.dll!ExitProcess")
+        self.assertIsNone(calls[0].target)
+
+    def test_unknown_register_stays_unresolved(self):
+        from reversesuite import callgraph_interproc as ci
+        self.assertEqual(ci.resolve_function(self._seq(bytes.fromhex("ffd0")), set(), view=None), [])
+
 if __name__ == "__main__":
     unittest.main()

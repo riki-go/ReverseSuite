@@ -208,16 +208,19 @@ def _analyze_dex(data: bytes, image: BinaryImage) -> schema.AnalysisResult:
     )
 
 
-def dex_call_graph(data: bytes, include_framework: bool = False):
+def dex_call_graph(data: bytes, include_framework: bool = False,
+                   resolve_dispatch: bool = False):
     """Method-level call graph for one .dex image (or None when unparsable)."""
     from .formats import dexgraph as dexgraph_mod
     try:
-        return dexgraph_mod.build(data, include_framework=include_framework)
+        return dexgraph_mod.build(data, include_framework=include_framework,
+                                  resolve_dispatch=resolve_dispatch)
     except Exception:  # noqa: BLE001 - a broken dex must not fail the whole analysis
         return None
 
 
-def dex_call_graph_for_container(data: bytes, include_framework: bool = False):
+def dex_call_graph_for_container(data: bytes, include_framework: bool = False,
+                                 resolve_dispatch: bool = False):
     """Merge the call graphs of every classes*.dex inside an .apk."""
     from .formats import container as container_mod
     from .formats import dexgraph as dexgraph_mod
@@ -228,7 +231,8 @@ def dex_call_graph_for_container(data: bytes, include_framework: bool = False):
     merged = dexgraph_mod.DexGraph()
     offset = 0
     for _name, payload in parts.dex:
-        graph = dex_call_graph(payload, include_framework=include_framework)
+        graph = dex_call_graph(payload, include_framework=include_framework,
+                               resolve_dispatch=resolve_dispatch)
         if graph is None:
             continue
         remap = {}

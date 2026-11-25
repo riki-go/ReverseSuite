@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
                          help="run the experimental value-set pass (slower)")
     analyze.add_argument("--no-members", action="store_true",
                          help="for .apk/.ipa: list members but do not analyse them")
+    analyze.add_argument("--dispatch", action="store_true",
+                         help="for .dex/.apk: also add virtual/interface dispatch targets found in the dex")
     analyze.add_argument("--all-methods", action="store_true",
                          help="for .dex/.apk: keep framework/library methods in the DEX call graph")
     dis = sub.add_parser("disasm", help="stream disassembly to JSONL")
@@ -328,9 +330,11 @@ def main(argv: list[str] | None = None) -> int:
         dex_graph = None
         if detected in (formats.FORMAT_DEX, formats.FORMAT_APK):
             if detected == formats.FORMAT_APK:
-                dex_graph = analysis_mod.dex_call_graph_for_container(data, args.all_methods)
+                dex_graph = analysis_mod.dex_call_graph_for_container(
+                    data, args.all_methods, resolve_dispatch=args.dispatch)
             else:
-                dex_graph = analysis_mod.dex_call_graph(data, args.all_methods)
+                dex_graph = analysis_mod.dex_call_graph(
+                    data, args.all_methods, resolve_dispatch=args.dispatch)
         if args.json:
             payload = json.loads(multi.to_canonical_json())
             if dex_graph is not None:

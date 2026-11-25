@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import capstone
 
-from . import disasm, functions, loader, schema, valueflow
+from . import callgraph_interproc, disasm, functions, loader, schema, valueflow
 
 RULE_EDGE = "pe.callgraph.edge"
 
@@ -60,6 +60,7 @@ class CallGraph:
     import_calls: int = 0
     resolved_indirect: int = 0
     valueflow_resolved: int = 0
+    interproc_resolved: int = 0
     unresolved_calls: int = 0
     tail_calls: int = 0
     thunk_calls: int = 0
@@ -80,6 +81,7 @@ class CallGraph:
             "import_calls": self.import_calls,
             "resolved_indirect": self.resolved_indirect,
             "valueflow_resolved": self.valueflow_resolved,
+            "interproc_resolved": self.interproc_resolved,
             "unresolved_calls": self.unresolved_calls,
             "tail_calls": self.tail_calls,
             "thunk_calls": self.thunk_calls,
@@ -292,11 +294,38 @@ def build(data: bytes, funcs: Optional[Sequence[functions.Function]] = None,
     if extra_resolved:
         indirect = max(0, indirect - extra_resolved)
 
+    interproc_resolved = 0
+    if use_valueflow:
+        view = valueflow.ImageView(data)
+        sequences: Dict[int, List[capstone.CsInsn]] = {}
+        for fn in funcs:
+            off = fn.start - base
+            if off < 0 or off >= len(text):
+                continue
+            body = text[off:off + max(fn.size, 1)]
+            sequences[fn.start] = list(engine.disasm(body, fn.start))
+        for call in callgraph_interproc.resolve(sequences, node_set, view, base, limit, iat):
+            if call.site in resolved_sites:
+                continue
+            owner = caller_of(call.site)
+            if owner is None:
+                continue
+            if call.target is not None:
+                edges.append(CallEdge(owner, call.target, call.site,
+                                       KIND_INDIRECT_RESOLVED, None, call.via))
+            else:
+                edges.append(CallEdge(owner, None, call.site, KIND_IMPORT, call.name))
+                imports_hit += 1
+            resolved_sites.add(call.site)
+            interproc_resolved += 1
+        indirect = max(0, indirect - interproc_resolved)
+
     edges.sort(key=lambda e: (e.caller, e.site, e.callee or 0))
     return CallGraph(nodes=nodes, edges=tuple(edges), node_info=tuple(infos),
                      indirect_calls=indirect, import_calls=imports_hit,
                      resolved_indirect=resolved_indirect,
                      valueflow_resolved=extra_resolved,
+                     interproc_resolved=interproc_resolved,
                      unresolved_calls=unresolved, tail_calls=tails, thunk_calls=thunked)
 
 

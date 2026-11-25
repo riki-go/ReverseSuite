@@ -79,7 +79,8 @@ def _looks_like_supported(data: bytes) -> bool:
 
 
 def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False,
-                  filename: str = "", dex_all_methods: bool = False) -> dict:
+                  filename: str = "", dex_all_methods: bool = False,
+                  dex_dispatch: bool = False) -> dict:
     """Analyse one file; PE keeps the callgraph path, other formats use the M8 pipeline."""
     detected = formats.detect(data, filename)
     if detected != formats.FORMAT_PE:
@@ -88,9 +89,11 @@ def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False,
         doc["graph"] = callgraph.CallGraph().as_dict()
         graph = None
         if detected == formats.FORMAT_DEX:
-            graph = analysis.dex_call_graph(data, include_framework=dex_all_methods)
+            graph = analysis.dex_call_graph(data, include_framework=dex_all_methods,
+                                            resolve_dispatch=dex_dispatch)
         elif detected == formats.FORMAT_APK:
-            graph = analysis.dex_call_graph_for_container(data, include_framework=dex_all_methods)
+            graph = analysis.dex_call_graph_for_container(data, include_framework=dex_all_methods,
+                                                          resolve_dispatch=dex_dispatch)
         if graph is not None:
             doc["dex_graph"] = graph.as_dict()
         return doc
@@ -1116,7 +1119,8 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                         doc = analyze_bytes(target.read_bytes(), int(payload.get("workers", workers)),
                                         bool(payload.get("valueflow", False)),
                                         filename=str(target),
-                                        dex_all_methods=bool(payload.get("dex_all_methods", False)))
+                                        dex_all_methods=bool(payload.get("dex_all_methods", False)),
+                                        dex_dispatch=bool(payload.get("dex_dispatch", False)))
                     except Exception as exc:
                         self._send(400, {"error": "analysis_failed", "detail": exc.__class__.__name__})
                         return

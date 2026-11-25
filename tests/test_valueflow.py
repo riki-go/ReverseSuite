@@ -31,14 +31,17 @@ class ValueflowTests(unittest.TestCase):
                 self.assertIn(edge.callee, nodes)
 
     def test_unresolved_calls_stay_counted(self):
-        self.assertEqual(self.graph.indirect_calls, 16)
+        # M6.2 resolves two more sites through stack spills / IAT loads (17 -> 14),
+        # the remaining ones take pointers returned by other calls.
+        self.assertEqual(self.graph.indirect_calls, 14)
+        self.assertEqual(self.graph.interproc_resolved, 2)
 
     def test_direct_and_import_totals_unchanged(self):
         kinds = {}
         for edge in self.graph.edges:
             kinds[edge.kind] = kinds.get(edge.kind, 0) + 1
         self.assertEqual(kinds["direct"], 71)
-        self.assertEqual(kinds["import"], 56)
+        self.assertEqual(kinds["import"], 58)  # +2 resolved as import calls by M6.2
         self.assertEqual(kinds["tail"], 2)
 
     def test_deterministic(self):
