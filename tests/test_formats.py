@@ -313,5 +313,47 @@ def struct_pack(word: int) -> bytes:
     return struct.pack("<H", word)
 
 
+class EncryptionReportingTests(unittest.TestCase):
+    """FairPlay-encrypted Mach-O must be reported as evidence, not silently analysed."""
+
+    def encrypted_macho(self) -> bytes:
+        import struct
+        base = fixture("ios_demo")
+        hdr = struct.unpack_from("<IIIIIIII", base, 0)
+        cmd = struct.pack("<IIIIII", 0x2C, 24, 0x1000, 0x40, 1, 0)  # LC_ENCRYPTION_INFO_64
+        blob = bytearray(base)
+        struct.pack_into("<II", blob, 16, hdr[4] + 1, hdr[5] + len(cmd))
+        insert_at = 32 + hdr[5]
+        blob[insert_at:insert_at] = cmd
+        return bytes(blob)
+
+    def test_encryption_finding_carries_cryptid_and_range(self):
+        result = analysis.analyze_bytes(self.encrypted_macho(), "ios_demo")
+        codes = [d.code for d in result.diagnostics]
+        self.assertIn("macho.encrypted", codes)
+        findings = [f for f in result.findings if f.kind == "encryption"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].value, "cryptid=1;offset=0x1000;size=64")
+        self.assertEqual(findings[0].rule, "macho.encryption.detect")
+        self.assertEqual(findings[0].evidence[0].offset, 0x1000)
+
+    def test_plain_macho_has_no_encryption_finding(self):
+        result = analysis.analyze_bytes(fixture("ios_demo"), "ios_demo")
+        self.assertFalse([f for f in result.findings if f.kind == "encryption"])
+
+
+class TextSizeCapTests(unittest.TestCase):
+    """The 32 MB guard is what keeps discovery bounded on huge binaries."""
+
+    def test_boundary_values(self):
+        limit = functions.MAX_FUNCTION_TEXT_BYTES
+        self.assertIsNone(functions.skip_reason(limit))
+        self.assertEqual(functions.skip_reason(limit + 1), functions.FUNCTION_SKIP_TEXT_TOO_LARGE)
+
+    def test_disabled_cap(self):
+        self.assertIsNone(functions.skip_reason(64 * 1024 * 1024, max_bytes=None))
+
+
+
 if __name__ == "__main__":
     unittest.main()

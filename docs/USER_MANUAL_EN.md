@@ -118,3 +118,12 @@ force-directed, and large graphs are capped at the first 400 nodes (the status l
 ---
 
 ReverseSuite v0.3.0 - Proprietary License.
+
+## Clean uninstall
+
+The MSI keeps `%LOCALAPPDATA%\ReverseSuite` and `%LOCALAPPDATA%\com.reversesuite.desktop`. Use the packaged script to remove them as well:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File uninstall-clean.ps1
+powershell -ExecutionPolicy Bypass -File uninstall-clean.ps1 -KeepUserData
+```

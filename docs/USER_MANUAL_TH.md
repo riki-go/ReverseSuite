@@ -131,3 +131,12 @@ ReverseSuite คือเครื่องมือวิเคราะห์�
 ---
 
 คู่มือฉบับนี้จัดทำสำหรับ **ReverseSuite v0.2.1** — สงวนลิขสิทธิ์การใช้งานส่วนบุคคล (Proprietary License)
+
+## ถอนการติดตั้งแบบลบข้อมูลผู้ใช้
+
+ตัวติดตั้ง MSI จะเก็บ `%LOCALAPPDATA%\ReverseSuite` และ `%LOCALAPPDATA%\com.reversesuite.desktop` ไว้ สคริปต์ที่ให้มาช่วยลบให้:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File uninstall-clean.ps1            # ลบทั้งหมด
+powershell -ExecutionPolicy Bypass -File uninstall-clean.ps1 -KeepUserData # เก็บข้อมูลผู้ใช้
+```

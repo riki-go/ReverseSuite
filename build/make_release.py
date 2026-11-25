@@ -130,6 +130,10 @@ def main() -> int:
     for name in ("README.md", "LICENSE"):
         shutil.copy2(ROOT / name, target / name)
 
+    script = ROOT / "build" / "uninstall-clean.ps1"
+    if script.is_file():
+        shutil.copy2(script, target / "uninstall-clean.ps1")
+
     notes = ROOT / "docs" / ("RELEASE_NOTES_v%s.md" % VERSION)
     if notes.is_file():
         shutil.copy2(notes, target / "RELEASE_NOTES.md")

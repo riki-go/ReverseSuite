@@ -90,6 +90,18 @@ def _analyze_image(data: bytes, image: BinaryImage, min_string_length: int,
         confidence_permille=1000, level="L0", rule=header_rule,
         evidence=[schema.Evidence(offset=0, space="file", rule=header_rule)],
     ))
+    meta = getattr(image, "metadata", None) or getattr(image, "meta", {}) or {}
+    cryptid = int(meta.get("cryptid", 0) or 0)
+    if cryptid:
+        rng = meta.get("crypt_range") or (0, 0)
+        findings.append(schema.Finding(
+            kind="encryption",
+            value="cryptid=%d;offset=0x%x;size=%d" % (cryptid, int(rng[0]), int(rng[1])),
+            confidence_permille=1000, level="L0", rule="macho.encryption.detect",
+            evidence=[schema.Evidence(offset=int(rng[0]), space="file",
+                                      rule="macho.encryption.detect")],
+        ))
+
     if image.entry is not None:
         findings.append(schema.Finding(
             kind="entry", value="0x%x" % image.entry, confidence_permille=1000, level="L0",

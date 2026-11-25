@@ -79,6 +79,7 @@ register(Rule("elf.function.discover", "function bounds from ARM/x86 prologues a
 register(Rule("macho.header.parse", "parse Mach-O header and load commands"))
 register(Rule("macho.section.parse", "parse Mach-O segments and sections"))
 register(Rule("macho.symbol.parse", "read Mach-O LC_SYMTAB symbols"))
+register(Rule("macho.encryption.detect", "report FairPlay-encrypted Mach-O text (cryptid)"))
 register(Rule("macho.function.discover", "function bounds from ARM64 prologues and bl targets"))
 register(Rule("dex.header.parse", "parse DEX header"))
 register(Rule("dex.string.table", "read DEX string ids"))

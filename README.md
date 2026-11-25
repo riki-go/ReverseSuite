@@ -88,7 +88,11 @@ pip install -r requirements.txt
 python -m reversesuite analyze samples\demo.apk --json
 
 # desktop app
-msiexec /i ReverseSuite_0.5.0_x64_en-US.msi
+msiexec /i ReverseSuite_0.5.1_x64_en-US.msi
+
+# uninstall (keeps user data, like the MSI) or remove everything
+powershell -ExecutionPolicy Bypass -File uninstall-clean.ps1 -KeepUserData
+powershell -ExecutionPolicy Bypass -File uninstall-clean.ps1
 ```
 
 Typical CLI output:
@@ -99,6 +103,14 @@ status  ok
 findings 70  diagnostics 1
 dexgraph 2 nodes / 1 edges (methods scanned 2, framework hidden 1)
 ```
+
+### Clean uninstall
+
+The MSI uninstall removes program files, registry keys and shortcuts, but keeps
+`%LOCALAPPDATA%\ReverseSuite` (logs, session token) and
+`%LOCALAPPDATA%\com.reversesuite.desktop` (WebView2 cache, ~75 MB) on purpose.
+The packaged `uninstall-clean.ps1` runs the MSI uninstall and then deletes those
+folders; pass `-KeepUserData` to keep the default behaviour.
 
 ---
 
