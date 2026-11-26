@@ -122,3 +122,15 @@ class XrefTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NegativeAddressTests(unittest.TestCase):
+    """Real ELF sections can map below the normalised base; findings must not crash."""
+
+    def test_negative_address_is_skipped(self):
+        from reversesuite import strings
+        from reversesuite.strings import ExtractedString
+        good = ExtractedString(value="hello", address=0x1000, length=5, encoding="ascii", section=".rodata", xrefs=[])
+        bad = ExtractedString(value="oops", address=-8, length=4, encoding="ascii", section=".rodata", xrefs=[])
+        findings = strings.to_findings([bad, good])
+        self.assertEqual([f.value for f in findings], ["hello"])

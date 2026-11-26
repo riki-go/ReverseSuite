@@ -52,8 +52,14 @@ def to_findings(items: Sequence["ExtractedString"], cap: int = 1000,
     out = []
     for item in items:
         rule = rule_ascii if item.encoding == "ascii" else rule_utf16
+        # A section that maps below the normalised base yields negative addresses;
+        # schema refuses them, so drop the unusable evidence instead of failing the run.
+        if item.address < 0:
+            continue
         evidence = [schema.Evidence(offset=item.address, space="va", xref=None, rule=rule)]
         for site in item.xrefs:
+            if site < 0:
+                continue
             evidence.append(schema.Evidence(offset=site, space="va", xref=item.address, rule=rule_xref))
         out.append(schema.Finding(
             kind="string",
