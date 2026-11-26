@@ -22,6 +22,25 @@ jobs:
           PYTHONPATH: src
         run: .venv/Scripts/python.exe -m unittest discover -s tests -t tests
 
+  ui:
+    runs-on: windows-latest
+    needs: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: install
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python.exe -m pip install --upgrade pip
+          .venv/Scripts/python.exe -m pip install capstone==5.0.9 playwright
+          .venv/Scripts/python.exe -m playwright install chromium
+      - name: ui end-to-end
+        env:
+          PYTHONPATH: src
+        run: .venv/Scripts/python.exe tests/e2e_ui.py
+
   desktop:
     runs-on: windows-latest
     needs: python
