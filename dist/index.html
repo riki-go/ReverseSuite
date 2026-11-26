@@ -152,12 +152,14 @@ th{background:#f7f7f7}.muted{color:#666}
       return;
     }
     $("out").textContent = "working...";
-    call("/analyze", { path: target, upload_id: uploaded.analyze || "" }, "analyze").then(function (text) {
+    call("/analyze", { path: target, upload_id: uploaded.analyze || "", graph_limit: 2000,
+                       findings_limit: 2000 }, "analyze").then(function (text) {
       var doc = JSON.parse(text);
       window.__lastAnalyze = doc;
       var lines = [];
       lines.push("status: " + doc.status + "   size: " + doc.target.size + " bytes");
-      lines.push("findings: " + doc.findings.length);
+      lines.push("findings: " + doc.findings.length +
+        (doc.findings_total ? " (showing first " + doc.findings.length + " of " + doc.findings_total + ")" : ""));
       lines.push("functions: " + doc.graph.nodes.length);
       lines.push("edges: " + doc.graph.edges.length + " (imports " + (doc.graph.import_calls || 0) + ", indirect " + (doc.graph.indirect_calls || 0) + ")");
       if (doc.dex_graph) {

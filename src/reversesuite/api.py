@@ -80,7 +80,8 @@ def _looks_like_supported(data: bytes) -> bool:
 
 def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False,
                   filename: str = "", dex_all_methods: bool = False,
-                  dex_dispatch: bool = False) -> dict:
+                  dex_dispatch: bool = False, graph_limit: int = 0,
+                  findings_limit: int = 0) -> dict:
     """Analyse one file; PE keeps the callgraph path, other formats use the M8 pipeline."""
     detected = formats.detect(data, filename)
     if detected != formats.FORMAT_PE:
@@ -96,6 +97,11 @@ def analyze_bytes(data: bytes, workers: int = 1, valueflow: bool = False,
                                                           resolve_dispatch=dex_dispatch)
         if graph is not None:
             doc["dex_graph"] = graph.as_dict()
+            if graph_limit:
+                doc["dex_graph"] = analysis.trim_graph(doc["dex_graph"], int(graph_limit))
+        if findings_limit and len(doc.get("findings", [])) > findings_limit:
+            doc["findings_total"] = len(doc["findings"])
+            doc["findings"] = doc["findings"][:findings_limit]
         return doc
     result = loader.parse(data)
     if result.status == "failed":
@@ -404,12 +410,14 @@ th{background:#f7f7f7}.muted{color:#666}
       return;
     }
     $("out").textContent = "working...";
-    call("/analyze", { path: target, upload_id: uploaded.analyze || "" }, "analyze").then(function (text) {
+    call("/analyze", { path: target, upload_id: uploaded.analyze || "", graph_limit: 2000,
+                       findings_limit: 2000 }, "analyze").then(function (text) {
       var doc = JSON.parse(text);
       window.__lastAnalyze = doc;
       var lines = [];
       lines.push("status: " + doc.status + "   size: " + doc.target.size + " bytes");
-      lines.push("findings: " + doc.findings.length);
+      lines.push("findings: " + doc.findings.length +
+        (doc.findings_total ? " (showing first " + doc.findings.length + " of " + doc.findings_total + ")" : ""));
       lines.push("functions: " + doc.graph.nodes.length);
       lines.push("edges: " + doc.graph.edges.length + " (imports " + (doc.graph.import_calls || 0) + ", indirect " + (doc.graph.indirect_calls || 0) + ")");
       if (doc.dex_graph) {
@@ -1120,7 +1128,9 @@ def make_handler(token: str, root: Optional[Path], workers: int = 1,
                                         bool(payload.get("valueflow", False)),
                                         filename=str(target),
                                         dex_all_methods=bool(payload.get("dex_all_methods", False)),
-                                        dex_dispatch=bool(payload.get("dex_dispatch", False)))
+                                        dex_dispatch=bool(payload.get("dex_dispatch", False)),
+                                        graph_limit=int(payload.get("graph_limit", 0) or 0),
+                                        findings_limit=int(payload.get("findings_limit", 0) or 0))
                     except Exception as exc:
                         self._send(400, {"error": "analysis_failed", "detail": exc.__class__.__name__})
                         return

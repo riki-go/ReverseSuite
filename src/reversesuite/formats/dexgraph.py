@@ -191,10 +191,38 @@ def _is_subclass(cls: str, ancestor: str, supers: Dict[str, str]) -> bool:
     return False
 
 
+def _children_map(supers):
+    """parent -> direct children, built once so lookups are not O(classes)."""
+    children = {}
+    for cls, parent in supers.items():
+        if parent:
+            children.setdefault(parent, []).append(cls)
+    return children
+
+
+def _descendants(root: str, children, limit: int = 4000):
+    out = []
+    stack = list(children.get(root, ()))
+    seen = set()
+    while stack and len(out) < limit:
+        cls = stack.pop()
+        if cls in seen:
+            continue
+        seen.add(cls)
+        out.append(cls)
+        stack.extend(children.get(cls, ()))
+    return out
+
+
 def dispatch_edges(inventory, edges, include_framework: bool = False):
-    """Resolve virtual/interface calls to every in-dex implementation."""
+    """Resolve virtual/interface calls to every in-dex implementation.
+
+    Caches the implementation list per (declaring class, method signature) so a dex
+    with tens of thousands of edges only walks the hierarchy once per target.
+    """
     impls = _implementations(inventory)
-    supers = inventory.superclasses
+    children = _children_map(inventory.superclasses)
+    cache = {}
     out = []
     seen = set()
     for edge in edges:
@@ -206,17 +234,20 @@ def dispatch_edges(inventory, edges, include_framework: bool = False):
         decl_name = inventory.method_names[edge.callee]
         decl_class = decl_name.rsplit(".", 1)[0]
         key = _method_key(decl_sig)
-        for cls, methods in impls.items():
-            if cls == decl_class:
-                continue
-            if key not in methods:
-                continue
-            if not _is_subclass(cls, decl_class, supers):
-                continue
-            if not include_framework and is_framework(cls):
-                continue
-            target = methods[key]
-            marker = (edge.caller, target, "dispatch")
+        cache_key = (decl_class, key)
+        targets = cache.get(cache_key)
+        if targets is None:
+            targets = []
+            for cls in _descendants(decl_class, children):
+                methods = impls.get(cls)
+                if not methods or key not in methods:
+                    continue
+                if not include_framework and is_framework(cls):
+                    continue
+                targets.append(methods[key])
+            cache[cache_key] = targets
+        for target in targets:
+            marker = (edge.caller, target)
             if marker in seen:
                 continue
             seen.add(marker)

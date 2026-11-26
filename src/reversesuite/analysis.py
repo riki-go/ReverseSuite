@@ -208,6 +208,30 @@ def _analyze_dex(data: bytes, image: BinaryImage) -> schema.AnalysisResult:
     )
 
 
+def trim_graph(graph: dict, limit: int) -> dict:
+    """Keep the busiest nodes (by degree) and the edges between them."""
+    if not graph or limit <= 0:
+        return graph
+    nodes = graph.get("nodes") or []
+    if len(nodes) <= limit:
+        return graph
+    degree = {}
+    for edge in graph.get("edges", []):
+        for key in ("caller", "callee"):
+            value = edge.get(key)
+            if value is not None:
+                degree[value] = degree.get(value, 0) + 1
+    order = sorted(nodes, key=lambda n: (-degree.get(n.get("id"), 0), n.get("id")))
+    keep = order[:limit]
+    kept_ids = {n.get("id") for n in keep}
+    edges = [e for e in graph.get("edges", [])
+             if e.get("caller") in kept_ids and e.get("callee") in kept_ids]
+    stats = dict(graph.get("stats") or {})
+    stats["trimmed_from_nodes"] = len(nodes)
+    stats["trimmed_from_edges"] = len(graph.get("edges", []))
+    return {"nodes": keep, "edges": edges, "stats": stats}
+
+
 def dex_call_graph(data: bytes, include_framework: bool = False,
                    resolve_dispatch: bool = False):
     """Method-level call graph for one .dex image (or None when unparsable)."""
