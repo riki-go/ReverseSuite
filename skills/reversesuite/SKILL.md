@@ -31,6 +31,8 @@ $env:PYTHONPATH = "projects\reversesuite\src"
 # Windows PE
 & $py -m reversesuite.cli analyze fixtures\frozen\b.exe
 & $py -m reversesuite.cli calls fixtures\frozen\b.exe --json
+& $py -m reversesuite.cli calls fixtures\frozen\b.exe --valueflow --json   # interproc_resolved
+& $py -m reversesuite.cli calls fixtures\frozen\vtable_demo.exe --valueflow --json  # vtables
 
 # iOS: อ่าน .ipa ทั้งแพ็กเกจ (Mach-O + __cstring + ARM64 functions)
 & $py -m reversesuite.cli analyze MyApp.ipa
@@ -63,14 +65,29 @@ DEX call graph ใน JSON (`analyze ... --json`):
 เรียกจาก API: `POST /analyze`, `/diff`, `/report` พร้อม header `Authorization: Bearer <token>`; รับ `path`, URL หรือ `upload_id` (`POST /upload`)
 - `{"dex_all_methods": true}` เก็บ `java.*`/`android.*` ในกราฟ DEX
 - `api.serve(upload_parent=...)` ย้ายโฟลเดอร์ upload/download ไปที่อื่น (จำเป็นเมื่อ antivirus บล็อกการอ่าน PE ใน `%TEMP%`)
-- URL input: โฟลเดอร์ temp ถูกลบใน `finally` ทุกครั้ง (แก้ใน 0.5.1)
+- URL input: โฟลเดอร์ temp ถูกลบใน `finally` ทุกครั้ง (แก้ใน 0.6.0)
 UI รับไฟล์ `.apk`/`.ipa`/`.so`/`.dex` เพิ่มจาก `.exe`/`.dll` แล้ว (ตรวจ magic bytes ไม่ใช่แค่นามสกุล)
+
+## Call-graph depth (0.6.0)
+
+- `--valueflow` resolves indirect calls through register copies, stack spills and IAT
+  loads (`interproc_resolved` in the JSON). On b.exe 17 unresolved sites drop to 14.
+- The same pass inventories vtables: read-only arrays of code pointers plus the RTTI
+  typeinfo pointer at [-1]. `calls --valueflow --json` returns
+  `vtables: [{address, name, slots}]`, and `to_findings()` emits one
+  `pe.callgraph.vtable` finding per table.
+- `analyze --dispatch` (or dex_dispatch=true) adds an edge from every
+  invoke-virtual/invoke-interface to each in-dex implementation found by walking
+  superclasses. Slow on big dex files; off by default.
+- Still unresolved by design: virtual calls through an object pointer (needs points-to)
+  and pointers returned by other functions.
 
 ## Verification
 
 ```powershell
 & $py -m unittest discover -s tests -t tests
-# expected: OK (192 tests, 2 skipped เมื่อไม่มี objdump/gcc ที่ pin ไว้)
+# expected: OK (205 tests, 2 skipped เมื่อไม่มี objdump/gcc ที่ pin ไว้)
+& $py tests\e2e_ui.py    # opt-in: needs playwright + chromium
 & $py skills\validate_skills.py
 # expected: ผ่านทุก skill (name/description/หัวข้อครบ)
 & $py fixtures\gen_multi.py
